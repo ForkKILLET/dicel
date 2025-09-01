@@ -1,0 +1,46 @@
+{
+  "terminals": [
+    {
+      "name": "dicel dev",
+      "description": "dev",
+      "cwd": "~/src/dicel/packages/core",
+      "command": "pnpm dev",
+      "execute": false
+    },
+    {
+      "name": "dicel-repl dev",
+      "description": "dev",
+      "cwd": "~/src/dicel/packages/repl",
+      "command": "pnpm dev",
+      "execute": false
+    },
+    {
+      "name": "dicel-frontend dev",
+      "description": "dev",
+      "cwd": "~/src/dicel/packages/frontend",
+      "command": "pnpm dev",
+      "execute": false
+    },
+    {
+      "name": "parsecond dev",
+      "description": "dev",
+      "cwd": "~/src/parsecond",
+      "command": "pnpm dev",
+      "execute": false
+    },
+    {
+      "name": "fk-result dev",
+      "description": "dev",
+      "cwd": "~/src/fk-result",
+      "command": "pnpm dev",
+      "execute": false
+    },
+    {
+      "name": "dicel-repl run",
+      "description": "repl",
+      "cwd": "~/src/dicel/packages/repl",
+      "command": "node dist",
+      "execute": false
+    }
+  ]
+}

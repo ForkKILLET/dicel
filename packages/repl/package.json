@@ -1,0 +1,29 @@
+{
+  "name": "@dicel/repl",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rslib build",
+    "dev": "rslib build --watch",
+    "clean": "rm -rf dist",
+    "start": "node dist"
+  },
+  "devDependencies": {
+    "@rslib/core": "^0.11.2",
+    "@types/node": "^22.17.0",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@dicel/core": "workspace:*"
+  }
+}

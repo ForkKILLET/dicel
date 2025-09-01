@@ -1,0 +1,36 @@
+{
+  "name": "@dicel/core",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rslib build",
+    "clean": "rm -rf dist",
+    "dev": "rslib build --watch",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@rslib/core": "^0.11.0",
+    "@types/node": "^22.16.5",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "fk-result": "^0.1.0",
+    "parsecond": "^0.7.0",
+    "remeda": "^2.30.0",
+    "ts-pattern": "^5.8.0",
+    "typescript-result": "^3.5.1"
+  }
+}
