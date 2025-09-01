@@ -1,21 +1,21 @@
 {
   "terminals": [
     {
-      "name": "dicel dev",
+      "name": "@dicel/core dev",
       "description": "dev",
       "cwd": "~/src/dicel/packages/core",
       "command": "pnpm dev",
       "execute": false
     },
     {
-      "name": "dicel-repl dev",
+      "name": "@dicel/repl dev",
       "description": "dev",
       "cwd": "~/src/dicel/packages/repl",
       "command": "pnpm dev",
       "execute": false
     },
     {
-      "name": "dicel-frontend dev",
+      "name": "@dicel/frontend dev",
       "description": "dev",
       "cwd": "~/src/dicel/packages/frontend",
       "command": "pnpm dev",
@@ -36,7 +36,7 @@
       "execute": false
     },
     {
-      "name": "dicel-repl run",
+      "name": "@dicel/repl run",
       "description": "repl",
       "cwd": "~/src/dicel/packages/repl",
       "command": "node dist",

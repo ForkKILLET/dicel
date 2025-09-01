@@ -79,16 +79,16 @@ export type VarOpExpr<Ex = {}> = Ex & {
   id: Ops
 }
 
-export const pParen: Parser<Expr<ExRange>> = p.lazy(() => pRanged(p.parens(p.alt([
+export const pParenExpr: Parser<Expr<ExRange>> = p.lazy(() => pRanged(p.parens(p.spaced(p.alt([
   p.map(p.alt(Ops.map(p.str)), (op: Ops): VarOpExpr => ({
     type: 'varOp',
     id: op,
   })),
   pExpr,
-]))))
+])))))
 
 export const pPrimaryExpr: Parser<Expr<ExRange>> = p.lazy(() => p.alt([
-  pParen,
+  pParenExpr,
   pNum,
   pVar,
 ]))
@@ -148,7 +148,7 @@ export const ApplyExprCurried = (func: Expr<ExRange>, [arg, ...args]: Expr<ExRan
 })
 export const pApplyExpr: Parser<ApplyExpr<ExRange>> = pRanged(p.lazy(() => p.map(
   p.ranged(p.seq([
-    p.alt([pVar, pParen]),
+    p.alt([pVar, pParenExpr]),
     p.some(p.spaced(pRollExprL))
   ])),
   ({ val: [func, args], range }) => ApplyExprCurried(func, args.reverse(), range)
