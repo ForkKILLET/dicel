@@ -10,5 +10,8 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.13.1"
+  "packageManager": "pnpm@10.13.1",
+  "dependencies": {
+    "parsecond": "link:../../.local/share/pnpm/global/5/node_modules/parsecond"
+  }
 }

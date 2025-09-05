@@ -3,8 +3,8 @@ import type { ExId, Expr, ExprType, ExRange, Node } from '@dicel/core'
 import type { Selection } from '../App.vue'
 import Type from './Type.vue'
 
-withDefaults(defineProps<{
-  node: Node<ExRange & ExId>,
+const props = withDefaults(defineProps<{
+  node: Node<ExRange & ExId> | Node,
   selection: Selection
   withParen?: boolean
 }>(), {
@@ -12,13 +12,20 @@ withDefaults(defineProps<{
 })
 
 const is = (expr: Expr, types: ExprType[]): boolean => types.includes(expr.type)
+
+const onMouseMove = () => {
+  if ('range' in props.node) props.selection.node = props.node
+}
 </script>
 
 <template>
   <div
     class="expr"
-    :class="{ [node.type]: true, selected: selection.node?.astId === node.astId }"
-    @mousemove.stop="selection.node = node"
+    :class="{
+      [node.type]: true,
+      selected: 'range' in node && selection.node?.astId === node.astId
+    }"
+    @mousemove.stop="onMouseMove"
   >
     <span v-if="withParen">(</span>
     <span v-if="node.type === 'num'">
@@ -37,14 +44,10 @@ const is = (expr: Expr, types: ExprType[]): boolean => types.includes(expr.type)
     </span>
     <span v-else-if="node.type === 'cond'">
       <Node :node="node.cond" :selection="selection" />
-      <div class="expr-i-2">
-        <span class="expr-op expr-spaced">?</span>
-        <Node :node="node.yes" :selection="selection" />
-      </div>
-      <div class="expr-i-2">
-        <span class="expr-op expr-spaced">:</span>
-        <Node :node="node.no" :selection="selection" />
-      </div>
+      <span class="expr-op expr-spaced">?</span>
+      <Node :node="node.yes" :selection="selection" />
+      <span class="expr-op expr-spaced">:</span>
+      <Node :node="node.no" :selection="selection" />
     </span>
     <span v-else-if="node.type === 'let'">
       <span class="expr-kw">let</span>

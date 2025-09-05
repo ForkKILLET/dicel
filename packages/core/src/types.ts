@@ -67,6 +67,8 @@ export type Type =
   | DiceType
   | VarType
 
+export type TypeSub = Type['sub']
+
 export type TypeScheme = {
   typeParams: Set<string>
   type: Type
@@ -159,18 +161,18 @@ export type HomoTypePair<T extends Type = Type> = TypePair<T, T>
 
 export const isHomoPair = (pair: TypePair): pair is HomoTypePair => pair[0].sub === pair[1].sub
 
-export type HomoTypePairMatcher<T, S extends Type['sub'] = Type['sub']> = {
+export type HomoTypePairMatcher<I extends Type, O, S extends TypeSub = TypeSub> = {
   sub: <So extends S>(
-    this: HomoTypePairMatcher<T, S>,
+    this: HomoTypePairMatcher<I, O, S>,
     sub: So,
-    fn: (pair: HomoTypePair<Type & { sub: So }>) => T
-  ) => HomoTypePairMatcher<T, Exclude<S, So>>
-  exhaustive: (this: HomoTypePairMatcher<T, never>) => T
+    fn: (pair: HomoTypePair<I & { sub: So }>) => O
+  ) => HomoTypePairMatcher<I, O, Exclude<S, So>>
+  exhaustive: (this: HomoTypePairMatcher<I, O, never>) => O
 }
-export const matchHomoPair = <T>(pair: HomoTypePair) => {
+export const matchHomoPair = <I extends Type, O>(pair: HomoTypePair<I>) => {
   let result: any = null
   const matcher = {
-    sub(sub: Type['sub'], fn: (pair: TypePair) => any) {
+    sub(sub: TypeSub, fn: (pair: TypePair) => any) {
       if (pair[0].sub === sub) result = fn(pair)
       return matcher
     },
@@ -178,6 +180,6 @@ export const matchHomoPair = <T>(pair: HomoTypePair) => {
       if (result === null) throw unreachable()
       return result
     }
-  } as HomoTypePairMatcher<T, Type['sub']>
+  } as HomoTypePairMatcher<I, O, Type['sub']>
   return matcher
 }

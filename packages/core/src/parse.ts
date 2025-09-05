@@ -1,5 +1,5 @@
 import { Err, Ok, Result } from 'fk-result'
-import { p, ParseErr, Parser, Range, RunParser, runParser } from 'parsecond'
+import { eat, p, ParseErr, Parser, ParserState, Range, RunParser, runParser } from 'parsecond'
 import { pipe } from 'remeda'
 import { ConType, DiceType, FuncType, Type, VarType } from './types'
 
@@ -7,6 +7,9 @@ declare module 'parsecond' {
   interface ParseErrMap {
     IsReserveWord: {
       word: string
+    }
+    ConflictDefinition: {
+      id: string
     }
   }
 }
@@ -96,7 +99,7 @@ export const pPrimaryExpr: Parser<Expr<ExRange>> = p.lazy(() => p.alt([
 export type Identifier = string
 export const RESERVE_WORDS = [ 'let', 'in' ]
 export const pIdentifier: Parser<Identifier> = p.bind(
-  p.notEmpty(p.regex(/[A-Za-z_][A-Za-z_\d]*/)),
+  p.notEmpty(p.regex(/[A-Za-z_][A-Za-z_\d']*/)),
   id => p.result(RESERVE_WORDS.includes(id)
     ? Err(ParseErr('IsReserveWord', { word: id }))
     : Ok(id)
@@ -218,10 +221,10 @@ export const LetExprMulti = (
   body: Expr<ExRange>,
   definedVars: string[],
   range: Range,
-): Result<LetExpr<ExRange>, string> => {
+): Result<LetExpr<ExRange>, ParseErr<'ConflictDefinition'>> => {
   const { id } = binding.lhs
   if (definedVars.includes(id))
-    return Err(`Redefinition of variable '${id}'`)
+    return Err(ParseErr('ConflictDefinition', { id }))
   const bodyResult = (bindings.length === 0
     ? Ok(body)
     : LetExprMulti(bindings, body, [...definedVars, id], Range.between(bindings[0].range, range))
@@ -241,7 +244,7 @@ export const pLetExpr: Parser<LetExpr<ExRange>> = p.lazy(() => p.bind(
         p.seq([pVar, p.spaced(p.char('=')), pExpr]),
         ([lhs, , rhs]) => ({ lhs, rhs })
       ),
-      p.spaced(p.char(';'))
+      p.spaced(p.char(',')),
     ),
     p.spaced(p.str('in')),
     pExpr,
@@ -260,22 +263,31 @@ export type LambdaExpr<Ex = {}> = Ex & {
   param: VarExpr<Ex>
   body: Expr<Ex>
 }
-export const LambdaExprCurried = ([param, ...params]: VarExpr<ExRange>[], body: Expr<ExRange>, range: Range): LambdaExpr<ExRange> => ({
-  type: 'lambda',
-  param,
-  body: ! params.length
-    ? body
-    : LambdaExprCurried(params, body, Range.between(params[0].range, range)),
-  range
-})
-export const pLambdaExpr: Parser<LambdaExpr<ExRange>> = p.lazy(() => p.map(
+export const LambdaExprCurried = (
+  [param, ...params]: VarExpr<ExRange>[],
+  body: Expr<ExRange>,
+  range: Range
+): Result<LambdaExpr<ExRange>, ParseErr<'ConflictDefinition'>> => {
+  if (params.some(({ id }) => id === param.id))
+    return Err(ParseErr('ConflictDefinition', { id: param.id }))
+  return (! params.length
+    ? Ok(body)
+    : LambdaExprCurried(params, body, Range.between(params[0].range, range))
+  ).map((body) => ({
+    type: 'lambda',
+    param,
+    body,
+    range
+  }))
+}
+export const pLambdaExpr: Parser<LambdaExpr<ExRange>> = p.lazy(() => p.bind(
   p.ranged(p.seq([
     p.spaced(p.char('\\')),
     p.sep(pVar, p.white),
     p.spaced(p.str('->')),
     pExpr,
   ])),
-  ({ val: [, params, , body], range }): LambdaExpr<ExRange> => LambdaExprCurried(params, body, range)
+  ({ val: [, params, , body], range }) => p.result(LambdaExprCurried(params, body, range))
 ))
 
 const isUpper = (char: string) => char >= 'A' && char <= 'Z'

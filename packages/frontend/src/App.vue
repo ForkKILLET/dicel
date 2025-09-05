@@ -16,9 +16,9 @@ const checkResult = computed(() => parseResult.value
   .mapErr(err => ({ type: 'Parse', err }))
   .bind(val => check(val.val))
 )
-const executeResult = computed(() => parseResult.value
+const executeResult = computed(() => checkResult.value
   .mapErr(err => ({ type: 'Parse', err }))
-  .bind(val => execute(val.val))
+  .bind(val => execute(val.expr))
 )
 const rollResult = computed(() => executeResult.value
   .mapErr(err => ({ type: 'Execute', err }))
@@ -69,7 +69,7 @@ const inputEl = useTemplateRef('inputEl')
 
       <div class="parse result">
         <div v-if="parseResult.isOk" class="parse ok">
-          Parse Ok: <NodeV
+          Expr: <NodeV
             :node="parseResult.val.val"
             :selection="selection"
             @mouseleave="selection.node = null"
@@ -100,7 +100,12 @@ const inputEl = useTemplateRef('inputEl')
 
       <div v-if="parseResult.isOk" class="check result">
         <div v-if="checkResult.isOk" class="check ok">
-          Check Ok: <TypeSchemeV :type-scheme="checkResult.val" />
+          <div>
+            Type: <TypeSchemeV :type-scheme="checkResult.val.typeScheme" />
+          </div>
+          <div>
+            New Expr: <NodeV :node="checkResult.val.expr" :selection="{ node: null }" />
+          </div>
         </div>
         <div v-else class="check err">
           Check Error:
@@ -120,7 +125,7 @@ const inputEl = useTemplateRef('inputEl')
 
       <div v-if="checkResult.isOk" class="execute result">
         <div v-if="executeResult.isOk" class="execute ok">
-          Execute Ok: <ValueV :value="executeResult.val" />
+          Result: <ValueV :value="executeResult.val" />
         </div>
         <div v-else class="execute err">
           Execute Error:
@@ -130,7 +135,7 @@ const inputEl = useTemplateRef('inputEl')
 
       <div v-if="executeResult.isOk" class="roll result">
         <div v-if="rollResult.isOk" class="roll ok">
-          Roll Ok: <ValueV :value="rollResult.val" />
+          Roll: <ValueV :value="rollResult.val" />
         </div>
       </div>
     </main>

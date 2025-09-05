@@ -23,12 +23,12 @@ export const builtinOps: Record<Ops, TypedBuiltin> = {
     (lhs: boolean) => (rhs: boolean) => lhs && rhs,
   ),
   '==': TypedBuiltin(
-    FuncTypeCurried(VarType('a'), VarType('a'), ConType('Bool')),
-    <a>(lhs: a) => (rhs: a) => lhs === rhs,
+    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
+    (lhs: number) => (rhs: number) => lhs === rhs,
   ),
   '!=': TypedBuiltin(
-    FuncTypeCurried(VarType('a'), VarType('a'), ConType('Bool')),
-    <a>(lhs: a) => (rhs: a) => lhs !== rhs,
+    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
+    (lhs: number) => (rhs: number) => lhs !== rhs,
   ),
   '<': TypedBuiltin(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
@@ -95,17 +95,37 @@ export const builtinVars: Record<string, TypedBuiltin> = {
     <a, b>(a: a) => (_: b): a => a,
   ),
 
-  newDice: TypedBuiltin(
+  pure: TypedBuiltin(
     FuncType(VarType('a'), DiceType(VarType('a'))),
     <a>(a: a) => new Dice(() => a),
   ),
-  mapDice: TypedBuiltin(
+  map: TypedBuiltin(
     FuncTypeCurried(FuncType(VarType('a'), VarType('b')), DiceType(VarType('a')), DiceType(VarType('b'))),
     <a, b>(ab: (a: a) => b) => (da: Dice<a>): Dice<b> => new Dice(() => ab(da.roll()))
   ),
-  bindDice: TypedBuiltin(
+  bind: TypedBuiltin(
     FuncTypeCurried(FuncType(VarType('a'), DiceType(VarType('b'))), DiceType(VarType('a')), DiceType(VarType('b'))),
     <a, b>(adb: (a: a) => Dice<b>) => (da: Dice<a>): Dice<b> => new Dice(() => adb(da.roll()).roll())
+  ),
+  fix: TypedBuiltin(
+    FuncType(DiceType(VarType('a')), DiceType(VarType('a'))),
+    <a>(da: Dice<a>): Dice<a> => {
+      let a: a | null = null
+      return new Dice(() => a ??= da.roll())
+    }
+  ),
+
+  max: TypedBuiltin(
+    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
+    (lhs: number) => (rhs: number) => Math.max(lhs, rhs),
+  ),
+  min: TypedBuiltin(
+    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
+    (lhs: number) => (rhs: number) => Math.min(lhs, rhs),
+  ),
+  abs: TypedBuiltin(
+    FuncType(ConType('Num'), ConType('Num')),
+    Math.abs,
   ),
 }
 

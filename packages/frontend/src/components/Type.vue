@@ -7,6 +7,8 @@ withDefaults(defineProps<{
 }>(), {
   withParen: false
 })
+
+const is = (type: Type, subs: Type['sub'][]): boolean => subs.includes(type.sub)
 </script>
 
 <template>
@@ -21,10 +23,10 @@ withDefaults(defineProps<{
     <span v-else-if="type.sub === 'dice'">
       <span class="type-con">Dice</span>
       <span class="type-spaced"></span>
-      <Type :type="type.inner" />
+      <Type :type="type.inner" :with-paren="is(type.inner, ['func', 'dice'])" />
     </span>
     <span v-else-if="type.sub === 'func'">
-      <Type :type="type.param" :with-paren="type.param.sub === 'func'" />
+      <Type :type="type.param" :with-paren="is(type.param, ['func'])" />
       <span class="type-op type-spaced">-&gt;</span>
       <Type :type="type.ret" />
     </span>

@@ -19,28 +19,31 @@ export const startRepl = () => {
       return
     }
 
-    const ast = parseRes.val.val
+    const expr = parseRes.val.val
 
-    if (process.env.DEBUG) console.log('AST:', ast)
-    const explanation = explain(ast, locale)
+    if (process.env.DEBUG) console.log('AST:', expr)
+    const explanation = explain(expr, locale)
     console.log('Explain: %s', explanation)
 
-    const checkOutput = check(ast)
+    const checkOutput = check(expr)
     if (checkOutput.isErr) {
       console.log('Check Error:', checkOutput.val)
       return
     }
 
-    console.log('Type: %s', showTypeScheme(checkOutput.val))
-    try {
-      const result = execute(ast)
-      console.log('Result:', result)
-      if (result instanceof Dice) {
-        console.log('Dice rolled:', result.roll())
-      }
+    const { typeScheme, expr: newExpr } = checkOutput.val
+    console.log('Type: %s', showTypeScheme(typeScheme))
+    console.log('New Explain: %s', explain(newExpr, locale))
+
+    const result = execute(newExpr)
+    if (result.isErr) {
+      console.log('Runtime Error:', result.val)
+      return
     }
-    catch (err) {
-      console.log(`Runtime Error: %s`, err instanceof Error ? err.message : err)
+    const { val } = result
+    console.log('Result:', val)
+    if (val instanceof Dice) {
+      console.log('Roll:', val.roll())
     }
   }
 
