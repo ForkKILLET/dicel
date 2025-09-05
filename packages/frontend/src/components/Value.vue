@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { Dice } from '@dicel/core'
-
 defineProps<{
   value: any
 }>()
@@ -17,8 +15,8 @@ defineProps<{
     <span v-else-if="typeof value === 'function'">
       <span class="value-special">[Function]</span>
     </span>
-    <span v-else-if="(value instanceof Dice)">
-      <span class="value-special">[Dice]</span>
+    <span v-else-if="value === null">
+      <span class="value-atom">()</span>
     </span>
   </div>
 </template>

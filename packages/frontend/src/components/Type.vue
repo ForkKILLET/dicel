@@ -20,11 +20,6 @@ const is = (type: Type, subs: Type['sub'][]): boolean => subs.includes(type.sub)
     <span v-else-if="type.sub === 'con'">
       <span class="type-con">{{ type.id }}</span>
     </span>
-    <span v-else-if="type.sub === 'dice'">
-      <span class="type-con">Dice</span>
-      <span class="type-spaced"></span>
-      <Type :type="type.inner" :with-paren="is(type.inner, ['func', 'dice'])" />
-    </span>
     <span v-else-if="type.sub === 'func'">
       <Type :type="type.param" :with-paren="is(type.param, ['func'])" />
       <span class="type-op type-spaced">-&gt;</span>

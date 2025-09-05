@@ -29,21 +29,30 @@ export namespace RuntimeEnv {
   }
 }
 
-export const kDice: unique symbol = Symbol('Dice')
-export class Dice<T> {
-  constructor(public readonly roll: () => T) {}
+export namespace Dice {
+  export const roll = (times: number, sides: number): number => {
+    if (! Number.isInteger(times) || times < 1)
+      throw new Error(`Expected times of rolls to be a positive integer, got ${times}`)
+    if (! Number.isInteger(sides) || sides < 1)
+      throw new Error(`Expected sides of rolls to be a positive integer, got ${sides}`)
 
-  [Symbol.for('nodejs.util.inspect.custom')](): string {
-    return '\x1B[36m[Dice]\x1B[0m'
+    const results: number[] = []
+    let sum = 0
+    for (let i = 0; i < times; i ++) {
+      const roll = Math.floor(Math.random() * sides) + 1
+      sum += roll
+      results.push(roll)
+    }
+    return sum
   }
-
-  [kDice] = true
 }
 
 const _execute = (expr: Expr, env: RuntimeEnv): any => {
   switch (expr.type) {
     case 'num':
       return expr.val
+    case 'unit':
+      return null
     case 'cond': {
       const cond = _execute(expr.cond, env) as boolean
       return cond ? _execute(expr.yes, env) : _execute(expr.no, env)
@@ -58,27 +67,6 @@ const _execute = (expr: Expr, env: RuntimeEnv): any => {
       const envI = RuntimeEnv.extend(env, { [id]: ref })
       ref.val = _execute(rhs, envI)
       return _execute(expr.body, envI)
-    }
-    case 'roll': {
-      const times = _execute(expr.times, env) as number
-      const sides = _execute(expr.sides, env) as number
-
-      if (! Number.isInteger(times) || times < 1)
-        throw new Error(`Expected times of rolls to be a positive integer, got ${times}`)
-      if (! Number.isInteger(sides) || sides < 1)
-        throw new Error(`Expected sides of rolls to be a positive integer, got ${sides}`)
-
-      return new Dice(() => {
-        const results: number[] = []
-        let sum = 0
-        for (let i = 0; i < times; i ++) {
-          const roll = Math.floor(Math.random() * sides) + 1
-          sum += roll
-          results.push(roll)
-        }
-        // TODO: handle multiple rolls
-        return sum
-      })
     }
     case 'apply':
       return _execute(expr.func, env)(_execute(expr.arg, env))

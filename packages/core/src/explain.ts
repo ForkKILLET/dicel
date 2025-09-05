@@ -68,14 +68,14 @@ const pangu = (strs: TemplateStringsArray, ...vals: string[]): string =>
 
 export const explainDicel = (expr: Expr): string => {
   switch (expr.type) {
-    case 'cond':
-      return `(${explainDicel(expr.cond)} ? ${explainDicel(expr.yes)} : ${explainDicel(expr.no)})`
-    case 'roll':
-      return `${explainDicel(expr.times)}@${explainDicel(expr.sides)}`
     case 'num':
       return String(expr.val)
+    case 'unit':
+      return '()'
     case 'var':
       return expr.id
+    case 'cond':
+      return `(${explainDicel(expr.cond)} ? ${explainDicel(expr.yes)} : ${explainDicel(expr.no)})`
     case 'let':
       return `let ${explainDicel(expr.binding.lhs)} = ${explainDicel(expr.binding.rhs)} in ${explainDicel(expr.body)}`
     case 'lambda':
@@ -96,14 +96,14 @@ export const explainDicel = (expr: Expr): string => {
 
 export const explainZh = (expr: Expr): string => {
   switch (expr.type) {
-    case 'cond':
-      return pangu`(如果${explainZh(expr.cond)}，那么${explainZh(expr.yes)}，否则${explainZh(expr.no)})`
-    case 'roll':
-      return pangu`(掷${explainZh(expr.times)}个${explainZh(expr.sides)}面骰的结果)`
     case 'num':
       return String(expr.val)
+    case 'unit':
+      return '()'
     case 'var':
       return expr.id
+    case 'cond':
+      return pangu`(如果${explainZh(expr.cond)}，那么${explainZh(expr.yes)}，否则${explainZh(expr.no)})`
     case 'let':
       return pangu`取${explainZh(expr.binding.lhs)}为${explainZh(expr.binding.rhs)}时 (${explainZh(expr.body)}) 的值)`
     case 'lambda':

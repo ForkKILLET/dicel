@@ -1,4 +1,4 @@
-import { ConType, DiceType, FuncType, InferFunc, VarType, FuncTypeCurried, Infer, TypeSchemeDict, TypeDict, Type } from './types'
+import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, Type } from './types'
 import { Ops } from './parse'
 import { Dice } from './execute'
 import { mapValues } from 'remeda'
@@ -95,24 +95,9 @@ export const builtinVars: Record<string, TypedBuiltin> = {
     <a, b>(a: a) => (_: b): a => a,
   ),
 
-  pure: TypedBuiltin(
-    FuncType(VarType('a'), DiceType(VarType('a'))),
-    <a>(a: a) => new Dice(() => a),
-  ),
-  map: TypedBuiltin(
-    FuncTypeCurried(FuncType(VarType('a'), VarType('b')), DiceType(VarType('a')), DiceType(VarType('b'))),
-    <a, b>(ab: (a: a) => b) => (da: Dice<a>): Dice<b> => new Dice(() => ab(da.roll()))
-  ),
-  bind: TypedBuiltin(
-    FuncTypeCurried(FuncType(VarType('a'), DiceType(VarType('b'))), DiceType(VarType('a')), DiceType(VarType('b'))),
-    <a, b>(adb: (a: a) => Dice<b>) => (da: Dice<a>): Dice<b> => new Dice(() => adb(da.roll()).roll())
-  ),
-  fix: TypedBuiltin(
-    FuncType(DiceType(VarType('a')), DiceType(VarType('a'))),
-    <a>(da: Dice<a>): Dice<a> => {
-      let a: a | null = null
-      return new Dice(() => a ??= da.roll())
-    }
+  roll: TypedBuiltin(
+    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
+    (times: number) => (sides: number): number => Dice.roll(times, sides),
   ),
 
   max: TypedBuiltin(

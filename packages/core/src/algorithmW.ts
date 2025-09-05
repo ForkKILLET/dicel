@@ -1,8 +1,9 @@
 import { match } from 'ts-pattern'
 import { map, mapValues, pipe, range, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
-import { Type, DiceType, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, showType, showTypeScheme } from './types'
-import { Expr, LetExpr } from './parse'
+import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, showType, showTypeScheme } from './types'
+import { Expr } from './parse'
+import { explainDicel } from './explain'
 
 const logTypes = (dict: TypeDict) => console.log(mapValues(dict, showType))
 
@@ -12,7 +13,6 @@ export namespace TypeSubst {
     const _apply = (type: Type): Type => match(type)
       .with({ sub: 'var' }, ({ id }) => typeParams.has(id) ? type : subst[id] ?? type)
       .with({ sub: 'func' }, type => FuncType(_apply(type.param), _apply(type.ret)))
-      .with({ sub: 'dice' }, ({ inner }) => DiceType(_apply(inner)))
       .otherwise(() => type)
     return _apply
   }
@@ -42,7 +42,6 @@ export const occurs = (typeVar: string, type: Type): boolean => match(type)
   .with({ sub: 'func' }, ({ param: param, ret }) =>
     occurs(typeVar, param) || occurs(typeVar, ret)
   )
-  .with({ sub: 'dice' }, ({ inner }) => occurs(typeVar, inner))
   .with({ sub: 'var' }, ({ id }) => id === typeVar)
   .exhaustive()
 
@@ -52,8 +51,6 @@ export type TypeSource =
   | { type: 'infer.Func.ret', funcExpr: Expr }
   | { type: 'infer.Let.val', valExpr: Expr, letExpr: Expr }
   | { type: 'expect.Cond', condExpr: Expr }
-  | { type: 'elim.Dice.inner', from: TypeSourced }
-  | { type: 'con.Dice', from: TypeSourced }
   | { type: 'elim.Func.param', from: TypeSourced }
   | { type: 'elim.Func.ret', from: TypeSourced }
 
@@ -84,11 +81,6 @@ export namespace TypeSourced {
     source: { type: 'expect.Cond', condExpr },
   })
 
-  export const elimDiceInner = (from: TypeSourced<DiceType>): TypeSourced => ({
-    ...from.inner,
-    source: { type: 'elim.Dice.inner', from },
-  })
-
   export const elimFuncParam = (from: TypeSourced<FuncType>): TypeSourced => ({
     ...from.param,
     source: { type: 'elim.Func.param', from },
@@ -97,11 +89,6 @@ export namespace TypeSourced {
   export const elimFuncRet = (from: TypeSourced<FuncType>): TypeSourced => ({
     ...from.ret,
     source: { type: 'elim.Func.ret', from },
-  })
-
-  export const conDice = (from: TypeSourced): TypeSourced<DiceType> => ({
-    ...DiceType(from),
-    source: { type: 'con.Dice', from },
   })
 
   export const map = <T extends Type, U extends Type>(typeSourced: TypeSourced<T>, transform: (type: T) => U): TypeSourced<U> => ({
@@ -143,7 +130,6 @@ export const unify = (lhs: TypeSourced, rhs: TypeSourced): Unify.Res => {
       ? Ok({})
       : Err({ type: 'DiffCon', lhs, rhs })
     )
-    .sub('dice', ([lhs, rhs]) => unify(TypeSourced.elimDiceInner(lhs), TypeSourced.elimDiceInner(rhs)))
     .sub('func', ([lhs, rhs]) =>
       unify(TypeSourced.elimFuncParam(lhs), TypeSourced.elimFuncParam(rhs))
         .bind(argSubst =>
@@ -204,7 +190,6 @@ export const collectTypeVars = (type: Type): Set<string> => match(type)
   .with({ sub: 'func' }, ({ param, ret }) =>
     unionSet([collectTypeVars(param), collectTypeVars(ret)])
   )
-  .with({ sub: 'dice' }, ({ inner }) => collectTypeVars(inner))
   .exhaustive()
 
 export const generalize = (type: Type, existingVars = new Set<string>): TypeScheme => ({
@@ -233,6 +218,11 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
       subst: {},
       expr,
     }))
+    .with({ type: 'unit' }, () => Ok({
+      type: TypeSourced.infer(ConType('()'), expr),
+      subst: {},
+      expr,
+    }))
     .with({ type: 'var' }, { type: 'varOp' }, ({ id }) =>
       id in env
         ? Ok({
@@ -242,11 +232,6 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
         })
         : Err({ type: 'UndefinedVar', id })
     )
-    .with({ type: 'roll' }, () => Ok({
-      type: TypeSourced.infer(DiceType(ConType('Num')), expr),
-      subst: {},
-      expr,
-    }))
     .with({ type: 'lambda' }, ({ param, body }) => {
       const paramVar = typeVarState.fresh()
       const envI = { ...env, [param.id]: TypeScheme.pure(paramVar) }
@@ -267,118 +252,15 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
             .bind(({ type: argType, subst: argSubst, expr: argExpr }) => {
               const funcTypeS = TypeSourced.applied(funcType, argSubst)
               const retVar = TypeSourced.inferFuncRet(typeVarState.fresh(), funcExpr)
-              const funcTypeH = TypeSourced.actual(FuncType(argType, retVar), expr)
+              const funcTypeA = TypeSourced.actual(FuncType(argType, retVar), expr)
 
-              // [x] (Normal)       ab :: a -> b $ a :: a := (ab a) :: b
-              // [x] (Dice rule 1)  ab :: a -> b $ da :: Dice a := (map ab da) :: Dice b
-              // [x] (Dice rule 2)  d_ab :: Dice (a -> b) $ a :: a := (map (\f -> f a) d_ab) :: Dice b
-              // [x] (Dice rule 3)  d_ab :: Dice (a -> b) $ da :: Dice a := (bind (\f -> map f da) d_ab) :: Dice b
-              // [x] (Dice rule 4)  adb :: a -> Dice b $ da :: Dice a := (bind adb da) :: Dice b
-              // [x] (Dice rule 5)  dab :: Dice a -> b $ a 
-
-              return unify(funcTypeS, funcTypeH)
+              return unify(funcTypeS, funcTypeA)
+                .mapErr(Infer.Err.fromUnify)
                 .map<Infer.Ok>(funcSubstU => ({
-                  type: TypeSourced.applied(funcTypeS, funcSubstU),
+                  type: TypeSourced.applied(retVar, funcSubstU),
                   subst: TypeSubst.compose([funcSubstU, argSubst, funcSubst]),
                   expr: { ...expr, func: funcExpr, arg: argExpr },
                 }))
-                .bindErr(err => match<TypeSourced, Result<Infer.Ok, unknown>>(funcTypeS)
-                  .with({ sub: 'func' }, funcTypeS => {
-                    const funcTypeSD = TypeSourced.actual(FuncType(DiceType(funcTypeS.param), DiceType(funcTypeS.ret)), expr)
-                    return unify(funcTypeSD, funcTypeH)
-                      .map<Infer.Ok>(funcSubstU => ({
-                        type: TypeSourced.applied(retVar, funcSubstU),
-                        subst: TypeSubst.compose([funcSubstU, argSubst, funcSubst]),
-                        expr: {
-                          type: 'apply',
-                          func: {
-                            type: 'apply',
-                            func: { type: 'var', id: 'map' },
-                            arg: funcExpr,
-                          },
-                          arg: argExpr,
-                        },
-                      }))
-                      .bindErr(err => {
-                        const funcTypeHD = TypeSourced.actual(FuncType(DiceType(argType), retVar), expr)
-                        return unify(funcTypeS, funcTypeHD)
-                          .mapErr(() => err)
-                          .map<Infer.Ok>(funcSubstU => ({
-                            type: TypeSourced.applied(retVar, funcSubstU),
-                            subst: TypeSubst.compose([funcSubstU, argSubst, funcSubst]),
-                            expr: {
-                              type: 'apply',
-                              func: funcExpr,
-                              arg: {
-                                type: 'apply',
-                                func: { type: 'var', id: 'pure' },
-                                arg: argExpr,
-                              },
-                            }
-                          }))
-                      })
-                  })
-                  .with({ sub: 'dice' }, diceTypeS =>
-                    match<Type, Result<Infer.Ok, unknown>>(diceTypeS.inner)
-                      .with({ sub: 'func' }, funcTypeS => {
-                        const funcTypeSD = TypeSourced.actual(FuncType(funcTypeS.param, DiceType(funcTypeS.ret)), expr)
-                        return unify(funcTypeSD, funcTypeH)
-                          .map<Infer.Ok>(funcSubstU => ({
-                            type: TypeSourced.applied(retVar, funcSubstU),
-                            subst: TypeSubst.compose([funcSubstU, argSubst, funcSubst]),
-                            expr: {
-                              type: 'apply',
-                              func: {
-                                type: 'apply',
-                                func: { type: 'var', id: 'map' },
-                                arg: {
-                                  type: 'lambda',
-                                  param: { type: 'var', id: '#f' },
-                                  body: {
-                                    type: 'apply',
-                                    func: { type: 'var', id: '#f' },
-                                    arg: argExpr,
-                                  }
-                                }
-                              },
-                              arg: funcExpr,
-                            },
-                          }))
-                          .bindErr(() => {
-                            const funcTypeSD = TypeSourced.actual(FuncType(DiceType(funcTypeS.param), DiceType(funcTypeS.ret)), expr)
-                            return unify(funcTypeSD, funcTypeH)
-                              .map<Infer.Ok>(funcSubstU => ({
-                                type: TypeSourced.applied(retVar, funcSubstU),
-                                subst: TypeSubst.compose([funcSubstU, argSubst, funcSubst]),
-                                expr: {
-                                  type: 'apply',
-                                  func: {
-                                    type: 'apply',
-                                    func: { type: 'var', id: 'bind' },
-                                    arg: {
-                                      type: 'lambda',
-                                      param: { type: 'var', id: '#f' },
-                                      body: {
-                                        type: 'apply',
-                                        func: {
-                                          type: 'apply',
-                                          func: { type: 'var', id: 'map' },
-                                          arg: { type: 'var', id: '#f' },
-                                        },
-                                        arg: argExpr,
-                                      },
-                                    },
-                                  },
-                                  arg: funcExpr,
-                                }
-                              }))
-                          })
-                      })
-                      .otherwise(() => Err(null))
-                  )
-                  .otherwise(() => Err(null))
-                  .mapErr(() => Infer.Err.fromUnify(err))
-                )
             })
         )
     )
@@ -388,7 +270,7 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
       const envH = { ...env, [lhs.id]: TypeScheme.pure(valVar) }
       return _infer(rhs, envH)
         .bind(({ type: valType, subst: valSubst, expr: valExpr }) =>
-          unify(valType, valVar)
+          unify(valType, TypeSourced.applied(valVar, valSubst))
             .mapErr(Infer.Err.fromUnify)
             .bind(valSubstU => {
               const valSubstC = TypeSubst.compose([valSubstU, valSubst])
@@ -415,131 +297,35 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
     })
     .with({ type: 'cond' }, ({ cond, yes, no }) =>
       _infer(cond, env)
-        .bind(({ type: condType, subst: condSubst, expr: condExpr }) => {
-          type CondTransform = (type: TypeSourced, exprs: { yesExpr: Expr, noExpr: Expr }) => {
-            type: TypeSourced
-            expr: Expr
-          }
-          type CondST = { subst: TypeSubst, transform: CondTransform }
-          return unify(condType, TypeSourced.expectCond(ConType('Bool'), expr))
-            .match(
-              subst => Ok<CondST>({
-                subst,
-                transform: (type, { yesExpr, noExpr }) => ({
-                  type,
-                  expr: {
-                    ...expr,
-                    yes: yesExpr,
-                    no: noExpr,
-                  },
-                }),
-              }),
-              err => unify(condType, TypeSourced.expectCond(DiceType(ConType('Bool')), expr))
-                .match(
-                  subst => Ok<CondST>({
-                    subst,
-                    transform: (type, { yesExpr, noExpr }) => {
-                      const toCollpase = type.sub === 'dice'
-                      return {
-                        type: toCollpase ? type : TypeSourced.conDice(type),
-                        expr: {
-                          type: 'apply',
-                          func: {
-                            type: 'apply',
-                            func: { type: 'var', id: toCollpase ? 'bind' : 'map' },
-                            arg: {
-                              type: 'lambda',
-                              param: { type: 'var', id: '#c' },
-                              body: {
-                                type: 'cond',
-                                cond: { type: 'var', id: '#c' },
-                                yes: yesExpr,
-                                no: noExpr,
-                              }
-                            },
-                          },
-                          arg: condExpr,
-                        }
-                      }
-                    },
-                  }),
-                  () => Err(err)
-                )
-            )
+        .bind(({ type: condType, subst: condSubst, expr: condExpr }) =>
+          unify(condType, TypeSourced.expectCond(ConType('Bool'), expr))
             .mapErr(Infer.Err.fromUnify)
-            .bind(({ subst: condSubstU, transform: condTransform }) => {
+            .bind(condSubstU => {
               const condSubstC = TypeSubst.compose([condSubstU, condSubst])
               const envS = TypeSubst.applySchemeDict(condSubstC)(env)
-              type BranchTransform = (
-                types: { yesType: TypeSourced, noType: TypeSourced },
-                exprs: { yesExpr: Expr, noExpr: Expr },
-              ) => {
-                type: TypeSourced
-                yesExpr: Expr
-                noExpr: Expr
-              }
-              type BranchST = { subst: TypeSubst, transform: BranchTransform }
               return _infer(yes, envS)
                 .bind(({ type: yesType, subst: yesSubst, expr: yesExpr }) =>
                   _infer(no, TypeSubst.applySchemeDict(yesSubst)(envS))
                     .bind(({ type: noType, subst: noSubst, expr: noExpr }) =>
                       unify(yesType, noType)
-                        .match(
-                          subst => Ok<BranchST>({
-                            subst,
-                            transform: ({ yesType }, { yesExpr, noExpr }) => ({
-                              type: yesType,
-                              yesExpr,
-                              noExpr,
-                            })
-                          }),
-                          err => unify(yesType, TypeSourced.expectCond(DiceType(noType), expr))
-                            .match(
-                              subst => Ok<BranchST>({
-                                subst,
-                                transform: ({ yesType }, { yesExpr, noExpr }) => ({
-                                  type: yesType,
-                                  yesExpr,
-                                  noExpr: {
-                                    type: 'apply',
-                                    func: { type: 'var', id: 'pure' },
-                                    arg: noExpr,
-                                  },
-                                })
-                              }),
-                              () => unify(TypeSourced.expectCond(DiceType(yesType), expr), noType)
-                                .match(
-                                  subst => Ok<BranchST>({
-                                    subst,
-                                    transform: ({ noType }, { yesExpr, noExpr }) => ({
-                                      type: noType,
-                                      yesExpr: {
-                                        type: 'apply',
-                                        func: { type: 'var', id: 'pure' },
-                                        arg: yesExpr,
-                                      },
-                                      noExpr,
-                                    })
-                                  }),
-                                  () => Err(err)
-                                )
-                            )
-                        )
-                        .map<Infer.Ok>(({ subst: branchSubst, transform: branchTransform }) => {
-                          const { type: branchTypeT, yesExpr: yesExprT, noExpr: noExprT } = branchTransform(
-                            { yesType, noType }, { yesExpr, noExpr }
-                          )
-                          const branchTypeS = TypeSourced.applied(branchTypeT, branchSubst)
+                        .mapErr(Infer.Err.fromUnify)
+                        .map<Infer.Ok>(branchSubst => {
+                          const branchTypeS = TypeSourced.applied(noType, branchSubst)
                           return {
-                            ...condTransform(branchTypeS, { yesExpr: yesExprT, noExpr: noExprT }),
+                            type: branchTypeS,
                             subst: TypeSubst.compose([branchSubst, noSubst, yesSubst, condSubstC]),
+                            expr: {
+                              ...expr,
+                              cond: condExpr,
+                              yes: yesExpr,
+                              no: noExpr,
+                            },
                           }
                         })
-                        .mapErr(Infer.Err.fromUnify)
                     )
                 )
             })
-        })
+        )
     )
     .with({ type: 'ann' }, ({ expr, ann: { val: annType } }) =>
       _infer(expr, env)
@@ -555,6 +341,14 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
         })
     )
     .otherwise(() => Err({ type: 'Unreachable' }))
+    .map(ok => {
+      console.log('infer %s :: %s, {%s}',
+        explainDicel(expr),
+        showType(ok.type),
+        Object.entries(ok.subst).map(([k, v]) => `${k}: ${showType(v)}`).join(', ')
+      )
+      return ok
+    })
 
   return _infer(expr, env)
 }

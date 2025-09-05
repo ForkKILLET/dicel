@@ -1,7 +1,7 @@
 import { Err, Ok, Result } from 'fk-result'
-import { eat, p, ParseErr, Parser, ParserState, Range, RunParser, runParser } from 'parsecond'
+import { p, ParseErr, Parser, Range, RunParser, runParser } from 'parsecond'
 import { pipe } from 'remeda'
-import { ConType, DiceType, FuncType, Type, VarType } from './types'
+import { ConType, FuncType, Type, VarType } from './types'
 
 declare module 'parsecond' {
   interface ParseErrMap {
@@ -82,12 +82,17 @@ export type VarOpExpr<Ex = {}> = Ex & {
   id: Ops
 }
 
+export type UnitExpr<Ex = {}> = Ex & {
+  type: 'unit'
+}
+
 export const pParenExpr: Parser<Expr<ExRange>> = p.lazy(() => pRanged(p.parens(p.spaced(p.alt([
   p.map(p.alt(Ops.map(p.str)), (op: Ops): VarOpExpr => ({
     type: 'varOp',
     id: op,
   })),
   pExpr,
+  p.pure<UnitExpr>({ type: 'unit' }),
 ])))))
 
 export const pPrimaryExpr: Parser<Expr<ExRange>> = p.lazy(() => p.alt([
@@ -112,27 +117,20 @@ export type VarExpr<Ex = {}> = Ex & {
 }
 export const pVar: Parser<VarExpr<ExRange>> = pRanged(p.map(pIdentifier, id => ({ type: 'var', id })))
 
-export type RollExpr<Ex = {}> = Ex & {
-  type: 'roll'
-  times: Expr<Ex>
-  sides: Expr<Ex>
-}
-export const pRollExpr: Parser<RollExpr<ExRange>> = p.map(
+export const pRollExpr: Parser<ApplyExpr<ExRange>> = p.map(
   p.ranged(p.seq([
     p.opt(pPrimaryExpr),
     p.char('@'),
     pPrimaryExpr,
   ])),
-  ({ val: [times, , sides], range }): RollExpr<ExRange> => ({
-    type: 'roll',
-    times: times ?? {
-      type: 'num',
-      val: 1,
-      range: Range.startOf(range),
-    },
-    sides,
+  ({ val: [times, , sides], range }): ApplyExpr<ExRange> => ApplyExprCurried(
+    { type: 'var', id: 'roll', range },
+    [
+      sides,
+      times ? times : { type: 'num', val: 1, range: Range.startOf(range) },
+    ],
     range,
-  })
+  )
 )
 export const pRollExprL = p.alt([pRollExpr, pPrimaryExpr])
 
@@ -164,7 +162,7 @@ export const pMulExpr: Parser<Expr<ExRange>> = pBinOp(['*', '/', '%'], 'left', p
 
 export const pAddExpr: Parser<Expr<ExRange>> = pBinOp(['+', '-'], 'left', pMulExpr)
 
-export const pRelExpr: Parser<Expr<ExRange>> = pBinOp(['<', '>', '<=', '>='], 'left', pAddExpr)
+export const pRelExpr: Parser<Expr<ExRange>> = pBinOp(['<=', '>=', '<', '>'], 'left', pAddExpr)
 
 export const pEqExpr: Parser<Expr<ExRange>> = pBinOp(['==', '!='], 'left', pRelExpr)
 
@@ -302,7 +300,7 @@ export const pConType: Parser<ConType> = p.map(
 )
 
 export const pFuncType: Parser<FuncType> = p.lazy(() => p.map(
-  p.seq([p.alt([pDiceType, pConType, pVarType, pParenType]), p.spaced(p.str('->')), pType]),
+  p.seq([p.alt([pConType, pVarType, pParenType]), p.spaced(p.str('->')), pType]),
   ([param, , ret]) => FuncType(param, ret)
 ))
 
@@ -316,16 +314,10 @@ export const pVarType: Parser<VarType> = p.map(
 
 export const pParenType: Parser<Type> = p.lazy(() => p.parens(pType))
 
-export const pDiceType: Parser<DiceType> = p.map(
-  p.seq([p.guard(pIdentifier, id => id === 'Dice'), p.alt([pConType, pVarType, pParenType])]),
-  ([, inner]) => DiceType(inner)
-)
-
 export const pType: Parser<Type> = p.alt([
   pFuncType,
   pConType,
   pVarType,
-  pDiceType,
 ])
 
 export type TypeNode<Ex = {}> = Ex & {
@@ -361,13 +353,13 @@ export const pAnnExpr: Parser<AnnExpr<ExRange>> = p.map(
 )
 
 export type Expr<Ex = {}> =
+  | UnitExpr<Ex>
+  | NumExpr<Ex>
   | LetExpr<Ex>
   | CondExpr<Ex>
-  | RollExpr<Ex>
   | ApplyExpr<Ex>
   | VarOpExpr<Ex>
   | VarExpr<Ex>
-  | NumExpr<Ex>
   | LambdaExpr<Ex>
   | AnnExpr<Ex>
 
@@ -418,10 +410,6 @@ const withId = <Ex>(expr: Expr<Ex>): Expr<Ex & ExId> => {
       case 'apply':
         newNode.func = traverse(newNode.func)
         newNode.arg = traverse(newNode.arg)
-        break
-      case 'roll':
-        newNode.times = traverse(newNode.times)
-        newNode.sides = traverse(newNode.sides)
         break
       case 'cond':
         newNode.cond = traverse(newNode.cond)

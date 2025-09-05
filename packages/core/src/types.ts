@@ -8,19 +8,10 @@ export interface ConType {
   sub: 'con'
   id: string
 }
-export type ConTypeId = 'Num' | 'Bool'
+export type ConTypeId = 'Num' | 'Bool' | '()'
 export const ConType = (id: ConTypeId): ConType => ({
   sub: 'con',
   id,
-})
-
-export interface DiceType<T extends Type = Type> {
-  sub: 'dice'
-  inner: T
-}
-export const DiceType = <T extends Type>(inner: T): DiceType<T> => ({
-  sub: 'dice',
-  inner,
 })
 
 export interface VarType<T extends string = string> {
@@ -64,7 +55,6 @@ export interface FuncType<A extends Type = Type, R extends Type = Type> {
 export type Type =
   | ConType
   | FuncType
-  | DiceType
   | VarType
 
 export type TypeSub = Type['sub']
@@ -95,7 +85,6 @@ export const showFuncType = (type: FuncType): string =>
 export const showType = (type: Type): string => match(type)
   .with({ sub: 'con' }, ({ id }) => id)
   .with({ sub: 'func' }, type => showFuncType(type))
-  .with({ sub: 'dice' }, ({ inner }) => `Dice ${showTypeParen(inner.sub === 'dice' || inner.sub === 'func')(inner)}`)
   .with({ sub: 'var' }, ({ id }) => id)
   .exhaustive()
 
@@ -118,7 +107,6 @@ export type Dedup<Ts extends any[]>
 
 export type FreeTypeVars<T extends Type> =
   T extends ConType ? [] :
-  T extends DiceType<infer I extends Type> ? FreeTypeVars<I> :
   T extends FuncType<infer A extends Type, infer R extends Type> ?
     [FreeTypeVars<A>, FreeTypeVars<R>] extends [infer AVs extends string[], infer RVs extends string[]]
       ? Dedup<[...AVs, ...RVs]>
@@ -146,9 +134,8 @@ export type Infer<T extends Type, VT extends VTable = VTable, TL extends boolean
   = T extends ConType
     ? T['id'] extends 'Num' ? number
     : T['id'] extends 'Bool' ? boolean
+    : T['id'] extends '()' ? null
     : never
-  : T extends DiceType
-    ? Dice<Infer<T['inner'], VT, TL>>
   : T extends FuncType
     ? InferFunc<T, VT, TL>
   : T extends VarType

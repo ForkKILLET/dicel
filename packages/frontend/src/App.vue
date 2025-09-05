@@ -20,13 +20,6 @@ const executeResult = computed(() => checkResult.value
   .mapErr(err => ({ type: 'Parse', err }))
   .bind(val => execute(val.expr))
 )
-const rollResult = computed(() => executeResult.value
-  .mapErr(err => ({ type: 'Execute', err }))
-  .bind(val => {
-    if (val instanceof Dice) return Ok(val.roll())
-    return Err(null)
-  })
-)
 
 export type Selection = {
   node: Node<ExRange & ExId> | null
@@ -100,12 +93,7 @@ const inputEl = useTemplateRef('inputEl')
 
       <div v-if="parseResult.isOk" class="check result">
         <div v-if="checkResult.isOk" class="check ok">
-          <div>
-            Type: <TypeSchemeV :type-scheme="checkResult.val.typeScheme" />
-          </div>
-          <div>
-            New Expr: <NodeV :node="checkResult.val.expr" :selection="{ node: null }" />
-          </div>
+          Type: <TypeSchemeV :type-scheme="checkResult.val.typeScheme" />
         </div>
         <div v-else class="check err">
           Check Error:
@@ -130,12 +118,6 @@ const inputEl = useTemplateRef('inputEl')
         <div v-else class="execute err">
           Execute Error:
           <pre>{{ executeResult.val }}</pre>
-        </div>
-      </div>
-
-      <div v-if="executeResult.isOk" class="roll result">
-        <div v-if="rollResult.isOk" class="roll ok">
-          Roll: <ValueV :value="rollResult.val" />
         </div>
       </div>
     </main>

@@ -29,18 +29,16 @@ const onMouseMove = () => {
   >
     <span v-if="withParen">(</span>
     <span v-if="node.type === 'num'">
-      <span class="expr-num">{{ node.val }}</span>
+      <span class="expr-lit">{{ node.val }}</span>
+    </span>
+    <span v-if="node.type === 'unit'">
+      <span class="expr-con">()</span>
     </span>
     <span v-else-if="node.type === 'var'">
       <span class="expr-var">{{ node.id }}</span>
     </span>
     <span v-else-if="node.type === 'varOp'">
       <span class="expr-op">{{ node.id }}</span>
-    </span>
-    <span v-else-if="node.type === 'roll'">
-      <Node :node="node.times" :selection="selection" />
-      <span class="expr-op">@</span>
-      <Node :node="node.sides" :selection="selection" />
     </span>
     <span v-else-if="node.type === 'cond'">
       <Node :node="node.cond" :selection="selection" />
@@ -64,14 +62,14 @@ const onMouseMove = () => {
     </span>
     <span v-else-if="node.type === 'apply'">
       <template v-if="node.func.type === 'apply' && node.func.func.type === 'varOp'">
-        <Node :node="node.func.arg" :selection="selection" :with-paren="! is(node.func.arg, ['var', 'num'])"  />
+        <Node :node="node.func.arg" :selection="selection" :with-paren="! is(node.func.arg, ['var', 'num', 'unit'])"  />
         <Node class="expr-spaced" :node="node.func.func" :selection="selection" />
-        <Node :node="node.arg" :selection="selection" :with-paren="! is(node.arg, ['var', 'num'])"  />
+        <Node :node="node.arg" :selection="selection" :with-paren="! is(node.arg, ['var', 'num', 'unit'])"  />
       </template>
       <template v-else>
-        <Node :node="node.func" :selection="selection" :with-paren="! is(node.func, ['var', 'num', 'apply'])" />
+        <Node :node="node.func" :selection="selection" :with-paren="! is(node.func, ['var', 'num', 'unit', 'apply'])" />
         <span class="expr-spaced"></span>
-        <Node :node="node.arg" :selection="selection" :with-paren="! is(node.arg, ['var', 'num'])" />
+        <Node :node="node.arg" :selection="selection" :with-paren="! is(node.arg, ['var', 'num', 'unit'])" />
       </template>
     </span>
     <span v-else-if="node.type === 'lambda'">
@@ -126,7 +124,7 @@ const onMouseMove = () => {
   margin-right: 1ch;
 }
 
-.expr-num {
+.expr-lit, .expr-con {
   color: lightgreen;
 }
 
