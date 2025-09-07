@@ -68,6 +68,9 @@ importers:
       '@vue/tsconfig':
         specifier: ^0.7.0
         version: 0.7.0(typescript@5.8.3)(vue@3.5.20(typescript@5.8.3))
+      parsecond:
+        specifier: link:../../../../.local/share/pnpm/global/5/node_modules/parsecond
+        version: link:../../../../.local/share/pnpm/global/5/node_modules/parsecond
       typescript:
         specifier: ~5.8.3
         version: 5.8.3

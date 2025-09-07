@@ -1,6 +1,6 @@
 {
   "name": "@dicel/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "exports": {
     ".": {
@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "fk-result": "^0.2.0",
-    "parsecond": "^0.8.0",
+    "parsecond": "^0.8.1",
     "remeda": "^2.30.0",
     "ts-pattern": "^5.8.0",
     "typescript-result": "^3.5.1"
