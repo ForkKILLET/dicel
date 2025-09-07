@@ -12,6 +12,7 @@
   "license": "ISC",
   "packageManager": "pnpm@10.13.1",
   "dependencies": {
+    "fk-result": "link:../../.local/share/pnpm/global/5/node_modules/fk-result",
     "parsecond": "link:../../.local/share/pnpm/global/5/node_modules/parsecond"
   }
 }

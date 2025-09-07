@@ -96,52 +96,6 @@ export const showTypeParen = (pred: boolean) => (type: Type): string => {
   return pred ? `(${typeStr})` : typeStr
 }
 
-export type VTable = Record<string, unknown>
-
-export type Dedup<Ts extends any[]>
-  = Ts extends [infer Th, ...infer Tt]
-    ? Th extends Tt[number]
-      ? Dedup<Tt>
-      : [Th, ...Dedup<Tt>]
-    : []
-
-export type FreeTypeVars<T extends Type> =
-  T extends ConType ? [] :
-  T extends FuncType<infer A extends Type, infer R extends Type> ?
-    [FreeTypeVars<A>, FreeTypeVars<R>] extends [infer AVs extends string[], infer RVs extends string[]]
-      ? Dedup<[...AVs, ...RVs]>
-      : never
-    :
-  T extends VarType ? [T['id']] :
-  never
-
-export type InferFunc<TF extends FuncType, VT extends VTable = VTable, TL extends boolean = true>
-  = TF extends FuncType<infer A extends Type, infer R extends Type>
-    ? TL extends true
-      ? FreeTypeVars<TF> extends infer Vs extends string[]
-        ? Vs extends [infer T1 extends string]
-          ? <V1>(arg: Infer<A, VT & Record<T1, V1>, false>) => Infer<R, VT & Record<T1, V1>, false>
-        : Vs extends [infer T1 extends string, infer T2 extends string]
-          ? <V1, V2>(arg: Infer<A, VT & Record<T1, V1> & Record<T2, V2>, false>) => Infer<R, VT & Record<T1, V1> & Record<T2, V2>, false>
-        : Vs extends [infer T1 extends string, infer T2 extends string, infer T3 extends string]
-          ? <V1, V2, V3>(arg: Infer<A, VT & Record<T1, V1> & Record<T2, V2> & Record<T3, V3>, false>) => Infer<R, VT & Record<T1, V1> & Record<T2, V2> & Record<T3, V3>, false>
-        : Fn
-      : never
-    : (arg: Infer<A, VT, false>) => Infer<R, VT, false>
-  : never
-
-export type Infer<T extends Type, VT extends VTable = VTable, TL extends boolean = true>
-  = T extends ConType
-    ? T['id'] extends 'Num' ? number
-    : T['id'] extends 'Bool' ? boolean
-    : T['id'] extends '()' ? null
-    : never
-  : T extends FuncType
-    ? InferFunc<T, VT, TL>
-  : T extends VarType
-    ? VT[T['id']]
-  : never
-
 export type TypePair<T extends Type = Type, U extends Type = Type> = [T, U]
 export const TypePair = <T extends Type, U extends Type>(lhs: T, rhs: U): TypePair<T, U> => [lhs, rhs]
 export type HomoTypePair<T extends Type = Type> = TypePair<T, T>

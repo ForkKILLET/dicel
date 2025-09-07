@@ -83,3 +83,11 @@ const _execute = (expr: Expr, env: RuntimeEnv): any => {
 
 export const execute = (expr: Expr, env: RuntimeEnv = RuntimeEnv.root()): Result<any, Error> =>
   Result.wrap(() => _execute(expr, env))
+
+export const showValue = (val: any): string => {
+  if (val === null) return '()'
+  if (typeof val === 'number') return String(val)
+  if (typeof val === 'function') return 'λ'
+  if (typeof val === 'boolean') return val ? 'True' : 'False'
+  return '?'
+}

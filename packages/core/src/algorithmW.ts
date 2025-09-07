@@ -332,23 +332,15 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
         .bind(({ type: exprType, subst: exprSubst }) => {
           const annTypeA = TypeSourced.actual(annType, expr)
           return unify(exprType, annTypeA)
+            .mapErr(Infer.Err.fromUnify)
             .map<Infer.Ok>(substU => ({
               type: TypeSourced.applied(annTypeA, substU),
               subst: TypeSubst.compose([substU, exprSubst]),
               expr,
             }))
-            .mapErr(Infer.Err.fromUnify)
         })
     )
     .otherwise(() => Err({ type: 'Unreachable' }))
-    .map(ok => {
-      console.log('infer %s :: %s, {%s}',
-        explainDicel(expr),
-        showType(ok.type),
-        Object.entries(ok.subst).map(([k, v]) => `${k}: ${showType(v)}`).join(', ')
-      )
-      return ok
-    })
 
   return _infer(expr, env)
 }

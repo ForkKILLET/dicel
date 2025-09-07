@@ -5,10 +5,11 @@ import Type from './Type.vue'
 
 const props = withDefaults(defineProps<{
   node: Node<ExRange & ExId> | Node,
-  selection: Selection
+  selection?: Selection
   withParen?: boolean
 }>(), {
-  withParen: false
+  withParen: false,
+  selection: () => ({ node: null })
 })
 
 const is = (expr: Expr, types: ExprType[]): boolean => types.includes(expr.type)

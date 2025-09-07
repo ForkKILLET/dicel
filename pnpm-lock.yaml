@@ -6,11 +6,15 @@ settings:
 
 overrides:
   parsecond: link:../../.local/share/pnpm/global/5/node_modules/parsecond
+  fk-result: link:../../.local/share/pnpm/global/5/node_modules/fk-result
 
 importers:
 
   .:
     dependencies:
+      fk-result:
+        specifier: link:../../.local/share/pnpm/global/5/node_modules/fk-result
+        version: link:../../.local/share/pnpm/global/5/node_modules/fk-result
       parsecond:
         specifier: link:../../.local/share/pnpm/global/5/node_modules/parsecond
         version: link:../../.local/share/pnpm/global/5/node_modules/parsecond
@@ -18,8 +22,8 @@ importers:
   packages/core:
     dependencies:
       fk-result:
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: link:../../../../.local/share/pnpm/global/5/node_modules/fk-result
+        version: link:../../../../.local/share/pnpm/global/5/node_modules/fk-result
       parsecond:
         specifier: link:../../../../.local/share/pnpm/global/5/node_modules/parsecond
         version: link:../../../../.local/share/pnpm/global/5/node_modules/parsecond
@@ -52,8 +56,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       fk-result:
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: link:../../../../.local/share/pnpm/global/5/node_modules/fk-result
+        version: link:../../../../.local/share/pnpm/global/5/node_modules/fk-result
       vue:
         specifier: ^3.5.20
         version: 3.5.20(typescript@5.8.3)
@@ -744,9 +748,6 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
-
-  fk-result@0.1.0:
-    resolution: {integrity: sha512-TCcxgL6vsZCHNBFb0EbjaWDOARrg/4nNyXnRkYSjPUg4m2woIDfRrKvUOLuZoHjDHgvvoqS/3EImCELfE5NxUw==}
 
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
@@ -1571,8 +1572,6 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.3):
     optionalDependencies:
       picomatch: 4.0.3
-
-  fk-result@0.1.0: {}
 
   fsevents@2.3.3:
     optional: true

@@ -9,8 +9,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@dicel/core": "workspace:*",
-    "fk-result": "^0.1.0",
+    "@dicel/core": "^0.2.0",
+    "fk-result": "^0.2.0",
     "vue": "^3.5.20"
   },
   "devDependencies": {

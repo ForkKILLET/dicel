@@ -15,7 +15,7 @@ export const startRepl = () => {
   const processLine = (line: string) => {
     const parseRes = parse(line)
     if (parseRes.isErr) {
-      console.log(`Parse Error: %o`, parseRes.val)
+      console.log(`Parse Error: %o`, parseRes.err)
       return
     }
 
@@ -27,7 +27,7 @@ export const startRepl = () => {
 
     const checkOutput = check(expr)
     if (checkOutput.isErr) {
-      console.log('Check Error:', checkOutput.val)
+      console.log('Check Error:', checkOutput.err)
       return
     }
 
@@ -37,14 +37,11 @@ export const startRepl = () => {
 
     const result = execute(newExpr)
     if (result.isErr) {
-      console.log('Runtime Error:', result.val)
+      console.log('Runtime Error:', result.err)
       return
     }
     const { val } = result
     console.log('Result:', val)
-    if (val instanceof Dice) {
-      console.log('Roll:', val.roll())
-    }
   }
 
   console.log('Welcome to Dicel REPL!')
