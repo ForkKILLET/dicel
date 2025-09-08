@@ -57,8 +57,11 @@ const _execute = (expr: Expr, env: RuntimeEnv): any => {
       const cond = _execute(expr.cond, env) as boolean
       return cond ? _execute(expr.yes, env) : _execute(expr.no, env)
     }
-    case 'var':
-      return RuntimeEnv.resolve(expr.id, env)
+    case 'var': {
+      const val = RuntimeEnv.resolve(expr.id, env)
+      if (val === undefined) throw new Error('undefined')
+      return val
+    }
     case 'varOp':
       return builtinOps[expr.id].value
     case 'let': {

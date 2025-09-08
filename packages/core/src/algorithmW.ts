@@ -150,7 +150,6 @@ export namespace Infer {
   export type Ok = {
     type: TypeSourced
     subst: TypeSubst
-    expr: Expr
   }
 
   export type Err =
@@ -162,9 +161,6 @@ export namespace Infer {
   }
   
   export type Res = Result<Ok, Err>
-
-  export const transformExpr = (transform: (expr: Expr) => Expr) =>
-    ({ type, subst, expr }: Ok): Ok => ({ type, subst, expr: transform(expr) })
 }
 
 export class TypeVarState {
@@ -216,19 +212,16 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
     .with({ type: 'num' }, () => Ok({
       type: TypeSourced.infer(ConType('Num'), expr),
       subst: {},
-      expr,
     }))
     .with({ type: 'unit' }, () => Ok({
       type: TypeSourced.infer(ConType('()'), expr),
       subst: {},
-      expr,
     }))
     .with({ type: 'var' }, { type: 'varOp' }, ({ id }) =>
       id in env
         ? Ok({
           type: TypeSourced.infer(typeVarState.instantiate(env[id]), expr),
           subst: {},
-          expr,
         })
         : Err({ type: 'UndefinedVar', id })
     )
@@ -236,30 +229,27 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
       const paramVar = typeVarState.fresh()
       const envI = { ...env, [param.id]: TypeScheme.pure(paramVar) }
       return _infer(body, envI)
-        .map<Infer.Ok>(({ type: bodyType, subst: bodySubst, expr: bodyExpr }) => {
+        .map<Infer.Ok>(({ type: bodyType, subst: bodySubst }) => {
           const paramType = TypeSubst.apply(bodySubst)(paramVar)
           return {
             type: TypeSourced.infer(FuncType(paramType, bodyType), expr),
             subst: bodySubst,
-            expr: { ...expr, body: bodyExpr },
           }
         })
     })
     .with({ type: 'apply' }, ({ func, arg }) =>
       _infer(func, env)
-        .bind(({ type: funcType, subst: funcSubst, expr: funcExpr }) =>
+        .bind(({ type: funcType, subst: funcSubst }) =>
           _infer(arg, TypeSubst.applySchemeDict(funcSubst)(env))
-            .bind(({ type: argType, subst: argSubst, expr: argExpr }) => {
+            .bind(({ type: argType, subst: argSubst }) => {
               const funcTypeS = TypeSourced.applied(funcType, argSubst)
-              const retVar = TypeSourced.inferFuncRet(typeVarState.fresh(), funcExpr)
+              const retVar = TypeSourced.inferFuncRet(typeVarState.fresh(), func)
               const funcTypeA = TypeSourced.actual(FuncType(argType, retVar), expr)
-
               return unify(funcTypeS, funcTypeA)
                 .mapErr(Infer.Err.fromUnify)
                 .map<Infer.Ok>(funcSubstU => ({
                   type: TypeSourced.applied(retVar, funcSubstU),
                   subst: TypeSubst.compose([funcSubstU, argSubst, funcSubst]),
-                  expr: { ...expr, func: funcExpr, arg: argExpr },
                 }))
             })
         )
@@ -269,7 +259,7 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
       const valVar = TypeSourced.inferLetVal(typeVarState.fresh(), rhs, expr)
       const envH = { ...env, [lhs.id]: TypeScheme.pure(valVar) }
       return _infer(rhs, envH)
-        .bind(({ type: valType, subst: valSubst, expr: valExpr }) =>
+        .bind(({ type: valType, subst: valSubst }) =>
           unify(valType, TypeSourced.applied(valVar, valSubst))
             .mapErr(Infer.Err.fromUnify)
             .bind(valSubstU => {
@@ -283,12 +273,7 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
                 unionSet,
               )
               const envI = { ...envS, [lhs.id]: generalize(valTypeS, existingVars) }
-              return _infer(body, envI).map(({ type: bodyType, subst: bodySubst, expr: bodyExpr }) => ({
-                expr: {
-                  ...expr,
-                  body: bodyExpr,
-                  binding: { ...binding, rhs: valExpr },
-                },
+              return _infer(body, envI).map(({ type: bodyType, subst: bodySubst }) => ({
                 type: bodyType,
                 subst: TypeSubst.compose([bodySubst, valSubstC]),
               }))
@@ -297,31 +282,22 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
     })
     .with({ type: 'cond' }, ({ cond, yes, no }) =>
       _infer(cond, env)
-        .bind(({ type: condType, subst: condSubst, expr: condExpr }) =>
+        .bind(({ type: condType, subst: condSubst }) =>
           unify(condType, TypeSourced.expectCond(ConType('Bool'), expr))
             .mapErr(Infer.Err.fromUnify)
             .bind(condSubstU => {
               const condSubstC = TypeSubst.compose([condSubstU, condSubst])
               const envS = TypeSubst.applySchemeDict(condSubstC)(env)
               return _infer(yes, envS)
-                .bind(({ type: yesType, subst: yesSubst, expr: yesExpr }) =>
+                .bind(({ type: yesType, subst: yesSubst }) =>
                   _infer(no, TypeSubst.applySchemeDict(yesSubst)(envS))
-                    .bind(({ type: noType, subst: noSubst, expr: noExpr }) =>
+                    .bind(({ type: noType, subst: noSubst }) =>
                       unify(yesType, noType)
                         .mapErr(Infer.Err.fromUnify)
-                        .map<Infer.Ok>(branchSubst => {
-                          const branchTypeS = TypeSourced.applied(noType, branchSubst)
-                          return {
-                            type: branchTypeS,
-                            subst: TypeSubst.compose([branchSubst, noSubst, yesSubst, condSubstC]),
-                            expr: {
-                              ...expr,
-                              cond: condExpr,
-                              yes: yesExpr,
-                              no: noExpr,
-                            },
-                          }
-                        })
+                        .map<Infer.Ok>(branchSubst => ({
+                          type: TypeSourced.applied(noType, branchSubst),
+                          subst: TypeSubst.compose([branchSubst, noSubst, yesSubst, condSubstC]),
+                        }))
                     )
                 )
             })
@@ -336,7 +312,6 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
             .map<Infer.Ok>(substU => ({
               type: TypeSourced.applied(annTypeA, substU),
               subst: TypeSubst.compose([substU, exprSubst]),
-              expr,
             }))
         })
     )

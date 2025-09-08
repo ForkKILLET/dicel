@@ -86,6 +86,11 @@ export const builtinVars: Record<string, TypedBuiltin> = {
     false,
   ),
 
+  undefined: TypedBuiltin(
+    VarType('a'),
+    undefined,
+  ),
+
   id: TypedBuiltin(
     FuncTypeCurried(VarType('a'), VarType('a')),
     <a>(a: a): a => a,

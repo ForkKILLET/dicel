@@ -31,11 +31,10 @@ export const startRepl = () => {
       return
     }
 
-    const { typeScheme, expr: newExpr } = checkOutput.val
+    const { typeScheme } = checkOutput.val
     console.log('Type: %s', showTypeScheme(typeScheme))
-    console.log('New Explain: %s', explain(newExpr, locale))
 
-    const result = execute(newExpr)
+    const result = execute(expr)
     if (result.isErr) {
       console.log('Runtime Error:', result.err)
       return

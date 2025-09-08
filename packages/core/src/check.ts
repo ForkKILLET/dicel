@@ -7,7 +7,6 @@ import { TypeScheme } from './types'
 export namespace Check {
   export type Ok = {
     typeScheme: TypeScheme
-    expr: Expr
   }
 
   export type Err = Infer.Err
@@ -16,7 +15,6 @@ export namespace Check {
 }
 
 export const check = (expr: Expr): Check.Res => infer(expr, builtinEnv)
-  .map(({ type, expr }) => ({
+  .map(({ type }) => ({
     typeScheme: prettify(generalize(type)),
-    expr,
   }))

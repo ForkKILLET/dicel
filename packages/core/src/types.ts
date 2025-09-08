@@ -14,6 +14,17 @@ export const ConType = (id: ConTypeId): ConType => ({
   id,
 })
 
+export interface ApplyType {
+  sub: 'apply'
+  func: Type
+  arg: Type
+}
+export const ApplyType = (func: Type, arg: Type): ApplyType => ({
+  sub: 'apply',
+  func,
+  arg,
+})
+
 export interface VarType<T extends string = string> {
   sub: 'var'
   id: T
@@ -23,6 +34,11 @@ export const VarType = <T extends string>(id: T): VarType<T> => ({
   id,
 })
 
+export interface FuncType<A extends Type = Type, R extends Type = Type> {
+  sub: 'func'
+  param: A
+  ret: R
+}
 export const FuncType = <A extends Type, R extends Type>(param: A, ret: R): FuncType<A, R> => ({
   sub: 'func',
   param,
@@ -44,12 +60,6 @@ export const FuncTypeCurried = <const As extends Type[]>(...types: As): FuncType
     ? FuncType(head, FuncTypeCurried(...tail))
     : head
   ) as FuncTypeCurried<As>
-}
-
-export interface FuncType<A extends Type = Type, R extends Type = Type> {
-  sub: 'func'
-  param: A
-  ret: R
 }
 
 export type Type =
