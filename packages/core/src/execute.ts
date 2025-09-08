@@ -1,9 +1,11 @@
 import { mapValues } from 'remeda'
+import { Result } from 'fk-result'
+import { match } from 'ts-pattern'
 import { builtinVars, builtinOps } from './builtin'
 import { Expr } from './parse'
-import { Result } from 'fk-result'
+import { Value, NumValue, UnitValue, assertVal, FuncValue } from './values'
 
-export type Ref = { val: any }
+export type Ref = { val: Value }
 export type Scope = Record<string, Ref>
 
 export type RuntimeEnv = {
@@ -22,10 +24,10 @@ export namespace RuntimeEnv {
     parent,
   })
 
-  export const resolve = (id: string, env: RuntimeEnv): any | null => {
+  export const resolve = (id: string, env: RuntimeEnv): Value => {
     if (id in env.scope) return env.scope[id].val
     if (env.parent) return resolve(id, env.parent)
-    return null
+    throw new Error(`Undefined variable '${id}' (unreachable)`)
   }
 }
 
@@ -47,50 +49,60 @@ export namespace Dice {
   }
 }
 
-const _execute = (expr: Expr, env: RuntimeEnv): any => {
-  switch (expr.type) {
-    case 'num':
-      return expr.val
-    case 'unit':
-      return null
-    case 'cond': {
-      const cond = _execute(expr.cond, env) as boolean
-      return cond ? _execute(expr.yes, env) : _execute(expr.no, env)
+const _execute = (expr: Expr, env: RuntimeEnv): Value => {
+  const _eval = (): Value => {
+    switch (expr.type) {
+      case 'num':
+        return NumValue(expr.val)
+      case 'unit':
+        return UnitValue()
+      case 'cond': {
+        const cond = _execute(expr.cond, env)
+        assertVal(cond, 'bool')
+        return cond.val ? _execute(expr.yes, env) : _execute(expr.no, env)
+      }
+      case 'var':
+        return RuntimeEnv.resolve(expr.id, env)
+      case 'varOp':
+        return builtinOps[expr.id].value
+      case 'let': {
+        const { lhs: { id }, rhs } = expr.binding
+        const ref: Ref = { val: UnitValue() }
+        const envI = RuntimeEnv.extend(env, { [id]: ref })
+        ref.val = _execute(rhs, envI)
+        return _execute(expr.body, envI)
+      }
+      case 'apply': {
+        const func = _execute(expr.func, env)
+        assertVal(func, 'func')
+        return func.val(_execute(expr.arg, env))
+      }
+      case 'lambda':
+        return FuncValue((arg: Value) => _execute(expr.body, RuntimeEnv.extend(env, {
+          [expr.param.id]: { val: arg }
+        })))
+      case 'ann':
+        return _execute(expr.expr, env)
+      default:
+        throw new Error(`Unknown expr: ${expr}`)
     }
-    case 'var': {
-      const val = RuntimeEnv.resolve(expr.id, env)
-      if (val === undefined) throw new Error('undefined')
-      return val
-    }
-    case 'varOp':
-      return builtinOps[expr.id].value
-    case 'let': {
-      const { lhs: { id }, rhs } = expr.binding
-      const ref: Ref = { val: null }
-      const envI = RuntimeEnv.extend(env, { [id]: ref })
-      ref.val = _execute(rhs, envI)
-      return _execute(expr.body, envI)
-    }
-    case 'apply':
-      return _execute(expr.func, env)(_execute(expr.arg, env))
-    case 'lambda':
-      return (arg: any) => _execute(expr.body, RuntimeEnv.extend(env, {
-        [expr.param.id]: { val: arg }
-      }))
-    case 'ann':
-      return _execute(expr.expr, env)
-    default:
-      throw new Error(`Unknown expr: ${expr}`)
   }
+  const val = _eval()
+  if (val.tag === 'err') throw new Error(val.msg)
+  return val
 }
 
-export const execute = (expr: Expr, env: RuntimeEnv = RuntimeEnv.root()): Result<any, Error> =>
+export const execute = (expr: Expr, env: RuntimeEnv = RuntimeEnv.root()): Result<Value, Error> =>
   Result.wrap(() => _execute(expr, env))
 
-export const showValue = (val: any): string => {
-  if (val === null) return '()'
-  if (typeof val === 'number') return String(val)
-  if (typeof val === 'function') return 'λ'
-  if (typeof val === 'boolean') return val ? 'True' : 'False'
-  return '?'
-}
+export const showValue = (val: Value): string => _showValue(val)
+const _showValue = (val: Value, withParen = false): string => (withParen ? '(' : '') + match(val)
+  .with({ tag: 'num' }, ({ val }) => String(val))
+  .with({ tag: 'bool' }, ({ val }) => val ? 'True' : 'False')
+  .with({ tag: 'unit' }, () => '()')
+  .with({ tag: 'func' }, () => 'Func')
+  .with({ tag: 'con' }, ({ id, args }) =>
+    `${id}${` ${args.map(arg => _showValue(arg, arg.tag === 'con')).join('')}`}`
+  )
+  .with({ tag: 'err' }, () => `Err`)
+  .exhaustive() + (withParen ? ')' : '')

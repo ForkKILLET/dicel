@@ -55,13 +55,13 @@ export const pBinOp = <
     ({ val: seq, range }) => (associativity === 'left'
       ? pipe(seq, ([head, tail]) => tail
         .reduce<Expr<ExRange>>(
-          (lhs, [{ val: op, range: opRange }, rhs]) => ApplyExprCurried({ type: 'varOp', id: op, range: opRange }, [rhs, lhs], range),
+          (lhs, [{ val: op, range: opRange }, rhs]) => ApplyExprCurried({ type: 'varOp', id: op, range: opRange }, [lhs, rhs], range),
           head
         )
       )
       : pipe(reverseSeq(seq), ([head, tail]) => tail
         .reduce<Expr<ExRange>>(
-          (rhs, [{ val: op, range: opRange }, lhs]) => ApplyExprCurried({ type: 'varOp', id: op, range: opRange }, [rhs, lhs], range),
+          (rhs, [{ val: op, range: opRange }, lhs]) => ApplyExprCurried({ type: 'varOp', id: op, range: opRange }, [lhs, rhs], range),
           head
         )
       )
@@ -123,7 +123,7 @@ export const pRollExpr: Parser<ApplyExpr<ExRange>> = p.map(
     p.char('@'),
     pPrimaryExpr,
   ])),
-  ({ val: [times, , sides], range }): ApplyExpr<ExRange> => ApplyExprCurried(
+  ({ val: [times, , sides], range }): ApplyExpr<ExRange> => _ApplyExprCurried(
     { type: 'var', id: 'roll', range },
     [
       sides,
@@ -139,20 +139,23 @@ export type ApplyExpr<Ex = {}> = Ex & {
   func: Expr<Ex>
   arg: Expr<Ex>
 }
-export const ApplyExprCurried = (func: Expr<ExRange>, [arg, ...args]: Expr<ExRange>[], range: Range): ApplyExpr<ExRange> => ({
+const _ApplyExprCurried = (func: Expr<ExRange>, [arg, ...args]: Expr<ExRange>[], range: Range): ApplyExpr<ExRange> => ({
   type: 'apply',
   func: ! args.length
     ? func
-    : ApplyExprCurried(func, args, Range.between(range, args[0].range)),
+    : _ApplyExprCurried(func, args, Range.between(range, args[0].range)),
   arg,
   range,
 })
+export const ApplyExprCurried = (func: Expr<ExRange>, args: Expr<ExRange>[], range: Range) =>
+  _ApplyExprCurried(func, args.toReversed(), range)
+
 export const pApplyExpr: Parser<ApplyExpr<ExRange>> = pRanged(p.lazy(() => p.map(
   p.ranged(p.seq([
     p.alt([pVar, pParenExpr]),
     p.some(p.spaced(pRollExprL))
   ])),
-  ({ val: [func, args], range }) => ApplyExprCurried(func, args.reverse(), range)
+  ({ val: [func, args], range }) => ApplyExprCurried(func, args, range)
 )))
 export const pApplyExprL = p.alt([pApplyExpr, pRollExprL])
 

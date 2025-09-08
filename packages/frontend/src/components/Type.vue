@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Type } from '@dicel/core'
+import type { Type, TypeSub } from '@dicel/core'
 
 withDefaults(defineProps<{
   type: Type
@@ -8,7 +8,7 @@ withDefaults(defineProps<{
   withParen: false
 })
 
-const is = (type: Type, subs: Type['sub'][]): boolean => subs.includes(type.sub)
+const is = (type: Type, subs: TypeSub[]): boolean => subs.includes(type.sub)
 </script>
 
 <template>
@@ -24,6 +24,11 @@ const is = (type: Type, subs: Type['sub'][]): boolean => subs.includes(type.sub)
       <Type :type="type.param" :with-paren="is(type.param, ['func'])" />
       <span class="type-op type-spaced">-&gt;</span>
       <Type :type="type.ret" />
+    </span>
+    <span v-else-if="type.sub === 'apply'">
+      <Type :type="type.func" :with-paren="is(type.func, ['func'])" />
+      <span class="type-spaced"> </span>
+      <Type :type="type.arg" :with-paren="is(type.arg, ['func', 'apply'])" />
     </span>
     <template v-if="withParen">)</template>
   </div>

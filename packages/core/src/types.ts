@@ -1,29 +1,46 @@
-import { Dice } from './execute'
-import { Fn } from './utils'
+import { Func, Reverse } from './utils'
 import { match } from 'ts-pattern'
 import { unreachable } from 'parsecond'
 import { pipe } from 'remeda'
 
-export interface ConType {
+export interface ConType<K extends string = string> {
   sub: 'con'
   id: string
 }
-export type ConTypeId = 'Num' | 'Bool' | '()'
-export const ConType = (id: ConTypeId): ConType => ({
+export type ConTypeId = 'Num' | 'Bool' | '()' | '(,)' | 'Either'
+export const ConType = <K extends ConTypeId>(id: K): ConType<K> => ({
   sub: 'con',
   id,
 })
 
-export interface ApplyType {
+export interface ApplyType<F extends Type = Type, A extends Type = Type> {
   sub: 'apply'
-  func: Type
-  arg: Type
+  func: F
+  arg: A
 }
-export const ApplyType = (func: Type, arg: Type): ApplyType => ({
+export const ApplyType = <F extends Type, A extends Type>(func: F, arg: A): ApplyType<F, A> => ({
   sub: 'apply',
   func,
   arg,
 })
+export type ApplyTypeCurried<As extends Type[] = []>
+  = As extends [infer F extends Type]
+    ? F
+    : As extends [infer A extends Type, ...infer As extends Type[]]
+      ? ApplyTypeCurried<As> extends infer F extends Type
+        ? ApplyType<F, A>
+        : never
+      : never
+const _ApplyTypeCurried = <const As extends Type[]>(...types: As): ApplyTypeCurried<As> => {
+  if (! types.length) throw unreachable()
+  const [head, ...tail] = types
+  return (tail.length
+    ? ApplyType(_ApplyTypeCurried(...tail), head)
+    : head
+  ) as ApplyTypeCurried<As>
+}
+export const ApplyTypeCurried = <const As extends Type[]>(...types: As) =>
+  _ApplyTypeCurried(...types.toReversed()) as ApplyTypeCurried<Reverse<As>>
 
 export interface VarType<T extends string = string> {
   sub: 'var'
@@ -66,6 +83,7 @@ export type Type =
   | ConType
   | FuncType
   | VarType
+  | ApplyType
 
 export type TypeSub = Type['sub']
 
@@ -96,6 +114,9 @@ export const showType = (type: Type): string => match(type)
   .with({ sub: 'con' }, ({ id }) => id)
   .with({ sub: 'func' }, type => showFuncType(type))
   .with({ sub: 'var' }, ({ id }) => id)
+  .with({ sub: 'apply' }, ({ func, arg }) =>
+    `${showTypeParen(func.sub === 'func')(func)} ${showTypeParen(arg.sub !== 'con')(arg)}`
+  )
   .exhaustive()
 
 export const showTypeScheme = ({ type, typeParams }: TypeScheme): string =>
@@ -118,7 +139,7 @@ export type HomoTypePairMatcher<I extends Type, O, S extends TypeSub = TypeSub> 
     sub: So,
     fn: (pair: HomoTypePair<I & { sub: So }>) => O
   ) => HomoTypePairMatcher<I, O, Exclude<S, So>>
-  exhaustive: (this: HomoTypePairMatcher<I, O, never>) => O
+  exhaustive: [S] extends [never] ? () => O : never
 }
 export const matchHomoPair = <I extends Type, O>(pair: HomoTypePair<I>) => {
   let result: any = null

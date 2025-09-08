@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline/promises'
 import { inspect } from 'node:util'
 
-import { parse, explain, Locale, execute, Dice, check, showTypeScheme } from '@dicel/core'
+import { parse, explain, Locale, execute, Dice, check, showTypeScheme, showValue } from '@dicel/core'
 
 export const startRepl = () => {
   const rl = createInterface({
@@ -40,7 +40,8 @@ export const startRepl = () => {
       return
     }
     const { val } = result
-    console.log('Result:', val)
+    console.log('Value:', showValue(val))
+    if (process.env.DEBUG) console.log('Raw Value:', inspect(val, { depth: null }))
   }
 
   console.log('Welcome to Dicel REPL!')

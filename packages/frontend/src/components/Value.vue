@@ -1,23 +1,40 @@
 <script setup lang="ts">
+import type { Value, ValueTag } from '@dicel/core'
+
 defineProps<{
-  value: any
+  val: Value
+  withParen?: boolean
 }>()
+
+const is = (val: Value, tags: ValueTag[]): boolean => tags.includes(val.tag)
 </script>
 
 <template>
   <div class="value">
-    <span v-if="typeof value === 'number'">
-      <span class="value-atom">{{ value }}</span>
+    <template v-if="withParen">(</template>
+    <span v-if="val.tag === 'num'">
+      <span class="value-atom">{{ val.val }}</span>
     </span>
-    <span v-else-if="typeof value === 'boolean'">
-      <span class="value-atom">{{ value ? 'True' : 'False' }}</span>
+    <span v-else-if="val.tag === 'bool'">
+      <span class="value-con">{{ val.val ? 'True' : 'False' }}</span>
     </span>
-    <span v-else-if="typeof value === 'function'">
-      <span class="value-special">[Function]</span>
+    <span v-else-if="val.tag === 'func'">
+      <span class="value-special">[Func]</span>
     </span>
-    <span v-else-if="value === null">
-      <span class="value-atom">()</span>
+    <span v-else-if="val.tag === 'con'">
+      <span class="value-con">{{ val.id }}</span>
+      <Value
+        v-for="arg, i of val.args"
+        :key="i"
+        class="value-con-arg"
+        :val="arg"
+        :with-paren="is(arg, ['con'])"
+      />
     </span>
+    <span v-else-if="val.tag === 'unit'">
+      <span class="value-con">()</span>
+    </span>
+    <template v-if="withParen">)</template>
   </div>
 </template>
 
@@ -35,5 +52,17 @@ defineProps<{
 
 .value-special {
   color: lightblue;
+}
+
+.value-con {
+  color: ivory;
+}
+
+.value-con-arg {
+  margin-left: 1ch;
+}
+
+.value + .value {
+  margin-left: 1ch;
 }
 </style>

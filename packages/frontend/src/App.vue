@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, useTemplateRef, watch } from 'vue'
-import { parse, check, execute, type Node, type ExRange, type ExId, type Check, showValue, type ExprEx, type NodeEx } from '@dicel/core'
+import { parse, check, execute, type Node, type ExRange, type ExId, type Check, showValue, type ExprEx, type NodeEx, type Value, UnitValue } from '@dicel/core'
 import type { ParseErr } from 'parsecond'
 import { Ok, type Result } from 'fk-result'
 import NodeV from './components/Node.vue'
@@ -53,17 +53,34 @@ const doExecuteToMultiple = (m: number) => {
 }
 
 namespace ExecutePass {
-  export type Ok = any
+  export type Ok = Value
   export type Err = Check.Err | Error
   export type Res = Result<Ok, Err>
 }
-const executeResult = ref<ExecutePass.Res>(Ok(null))
+const executeResult = ref<ExecutePass.Res>(Ok(UnitValue()))
 
 const disTotal = ref(0)
 const dis = reactive(new Map<string, number>())
 const disMax = ref(0)
-const disEntriesSorted = computed(() => checkResult.value.match(
-  ({ typeScheme: { type } }) =>{
+
+const disMeasureEl = useTemplateRef('disMeasure')
+const disChWidth = computed(() => disMeasureEl.value?.getBoundingClientRect().width ?? 0)
+const disChHeight = computed(() => disMeasureEl.value?.getBoundingClientRect().height ?? 0)
+
+type DisCase = {
+  x: number
+  y: number
+  width: number
+  height: number
+
+  label: string
+  prob: string
+  count: number
+}
+const disCases = computed<DisCase[]>(() => checkResult.value.match(
+  ({ typeScheme: { type } }) => {
+    if (! disTotal.value || ! disMax.value || ! disChWidth.value) return []
+
     const entries = [...dis.entries()]
 
     if (type.sub === 'con' && type.id === 'Num')
@@ -75,10 +92,33 @@ const disEntriesSorted = computed(() => checkResult.value.match(
       entries.unshift(errEntry)
     }
 
-    return entries
+    const cases: DisCase[] = []
+    let x = 0.5 * disChWidth.value
+    for (const [label, count] of entries) {
+      const ratioToMax = count / disMax.value
+      const width = Math.max(5, label.length) * disChWidth.value
+      cases.push({
+        x,
+        y: 100 * (1 - ratioToMax),
+        width,
+        height: 100 * ratioToMax,
+        label: label,
+        prob: `${(count / disTotal.value * 100).toFixed(1)}%`,
+        count,
+      })
+      x += width + 5
+    }
+
+    return cases
   },
   () => [],
 ))
+const disTotalWidth = computed(() => {
+  const lastCase = disCases.value.at(-1)
+  if (! lastCase) return 0
+  const { x, width } = lastCase
+  return x + width + 0.5 * disChWidth.value
+})
 
 watch(parseResult, result => result.tap(() => {
   dis.clear()
@@ -177,7 +217,7 @@ const inputEl = useTemplateRef('inputEl')
 
         <div v-if="executeResult.isOk" class="execute ok section">
           Value:
-          <ValueV :value="executeResult.val" />
+          <ValueV :val="executeResult.val" />
         </div>
         <div v-else class="execute err section">
           Execute Error:
@@ -187,39 +227,38 @@ const inputEl = useTemplateRef('inputEl')
         <div class="section">
           Distribution (<span class="dis-total">{{ disTotal }}x</span>):
           <div class="dis-scroll">
-            <svg class="dis-graph" :width="dis.size * 35" :height="140">
+            <div class="dis-measure-container">
+              <span class="dis-measure" ref="disMeasure">x</span>
+            </div>
+            <svg class="dis-graph" :width="10 + disTotalWidth" :height="140">
               <g
-                v-for="[val, count], i of disEntriesSorted"
-                :key="val"
-              >
-                <g
-                  :transform="`translate(${i * 35}, 0)`"
+                v-for="{ x, y, width, height, label, count, prob } of disCases"
+                :key="label"
                   class="dis-bar"
-                  :class="{ 'dis-bar-err': val === 'Error' }"
-                >
-                  <rect
-                    class="dis-bar-bar"
-                    :x="0"
-                    :y="100 * (1 - count / disMax)"
-                    :width="30"
-                    :height="100 * count / disMax"
-                  />
-                  <text
-                    class="dis-bar-val"
-                    :x="15"
-                    :y="100 + 10"
-                  >{{ val }}</text>
-                  <text
-                    class="dis-bar-count"
-                    :x="15"
-                    :y="100 + 20"
-                  >{{ count }}</text>
-                  <text
-                    class="dis-bar-count"
-                    :x="15"
-                    :y="100 + 30"
-                  >{{ (count / disTotal * 100).toFixed(1) }}%</text>
-                </g>
+                  :class="{ 'dis-bar-err': label === 'Error' }"
+              >
+                <rect
+                  class="dis-bar-bar"
+                  :x="x + width / 2 - 15"
+                  :y="y"
+                  :width="30"
+                  :height="height"
+                />
+                <text
+                  class="dis-bar-val"
+                  :x="x + width / 2"
+                  :y="100 + disChHeight"
+                >{{ label }}</text>
+                <text
+                  class="dis-bar-count"
+                  :x="x + width / 2"
+                  :y="100 + disChHeight * 2"
+                >{{ count }}</text>
+                <text
+                  class="dis-bar-count"
+                  :x="x + width / 2"
+                  :y="100 + disChHeight * 3"
+                >{{ prob }}</text>
               </g>
             </svg>
           </div>
@@ -305,6 +344,14 @@ pre {
   margin: 0;
 }
 
+.dis-measure-container {
+  height: 0;
+}
+
+.dis-measure {
+  visibility: hidden;
+}
+
 .dis-total {
   color: lightgreen;
 }
@@ -312,6 +359,7 @@ pre {
 .dis-scroll {
   padding: 1em 0;
   overflow-x: auto;
+  font-size: .9em;
 }
 
 .dis-bar-bar {
@@ -321,7 +369,6 @@ pre {
 
 .dis-bar-count, .dis-bar-val {
   text-anchor: middle;
-  font-size: .8em;
 }
 
 .dis-bar-count {

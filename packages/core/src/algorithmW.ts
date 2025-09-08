@@ -1,19 +1,18 @@
 import { match } from 'ts-pattern'
 import { map, mapValues, pipe, range, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
-import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, showType, showTypeScheme } from './types'
+import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, showType, showTypeScheme, ApplyType } from './types'
 import { Expr } from './parse'
-import { explainDicel } from './explain'
-
-const logTypes = (dict: TypeDict) => console.log(mapValues(dict, showType))
 
 export type TypeSubst = TypeDict
 export namespace TypeSubst {
   const _applyScheme = (subst: TypeSubst) => (typeParams: Set<string>) => {
     const _apply = (type: Type): Type => match(type)
+      .with({ sub: 'con' }, () => type)
       .with({ sub: 'var' }, ({ id }) => typeParams.has(id) ? type : subst[id] ?? type)
       .with({ sub: 'func' }, type => FuncType(_apply(type.param), _apply(type.ret)))
-      .otherwise(() => type)
+      .with({ sub: 'apply' }, type => ApplyType(_apply(type.func), _apply(type.arg)))
+      .exhaustive()
     return _apply
   }
 
@@ -43,6 +42,9 @@ export const occurs = (typeVar: string, type: Type): boolean => match(type)
     occurs(typeVar, param) || occurs(typeVar, ret)
   )
   .with({ sub: 'var' }, ({ id }) => id === typeVar)
+  .with({ sub: 'apply' }, ({ func, arg }) =>
+    occurs(typeVar, func) || occurs(typeVar, arg)
+  )
   .exhaustive()
 
 export type TypeSource =
@@ -53,6 +55,8 @@ export type TypeSource =
   | { type: 'expect.Cond', condExpr: Expr }
   | { type: 'elim.Func.param', from: TypeSourced }
   | { type: 'elim.Func.ret', from: TypeSourced }
+  | { type: 'elim.Apply.func', from: TypeSourced }
+  | { type: 'elim.Apply.arg', from: TypeSourced }
 
 export type TypeSourced<T extends Type = Type> = T & { source: TypeSource }
 export namespace TypeSourced {
@@ -89,6 +93,16 @@ export namespace TypeSourced {
   export const elimFuncRet = (from: TypeSourced<FuncType>): TypeSourced => ({
     ...from.ret,
     source: { type: 'elim.Func.ret', from },
+  })
+
+  export const elimApplyFunc = (from: TypeSourced<ApplyType>): TypeSourced => ({
+    ...from.func,
+    source: { type: 'elim.Apply.func', from },
+  })
+
+  export const elimApplyArg = (from: TypeSourced<ApplyType>): TypeSourced => ({
+    ...from.arg,
+    source: { type: 'elim.Apply.arg', from },
   })
 
   export const map = <T extends Type, U extends Type>(typeSourced: TypeSourced<T>, transform: (type: T) => U): TypeSourced<U> => ({
@@ -140,11 +154,23 @@ export const unify = (lhs: TypeSourced, rhs: TypeSourced): Unify.Res => {
             .map(retSubst => TypeSubst.compose([retSubst, argSubst]))
         )
     )
-    .sub('var', ([lhs, rhs]) => Result
-      .ok(lhs.id === rhs.id ? {} : { [lhs.id]: rhs })
+    .sub('var', ([lhs, rhs]) => 
+      Ok(lhs.id === rhs.id ? {} : { [lhs.id]: rhs })
+    )
+    .sub('apply', ([lhs, rhs]) =>
+      unify(TypeSourced.elimApplyFunc(lhs), TypeSourced.elimApplyFunc(rhs))
+        .bind(funcSubst =>
+          unify(
+            TypeSourced.applied(TypeSourced.elimApplyArg(lhs), funcSubst),
+            TypeSourced.applied(TypeSourced.elimApplyArg(rhs), funcSubst),
+          )
+            .map(argSubst => TypeSubst.compose([argSubst, funcSubst]))
+        )
     )
     .exhaustive()
 }
+
+match
 
 export namespace Infer {
   export type Ok = {
@@ -185,6 +211,9 @@ export const collectTypeVars = (type: Type): Set<string> => match(type)
   .with({ sub: 'con' }, () => new Set<string>)
   .with({ sub: 'func' }, ({ param, ret }) =>
     unionSet([collectTypeVars(param), collectTypeVars(ret)])
+  )
+  .with({ sub: 'apply' }, ({ func, arg }) =>
+    unionSet([collectTypeVars(func), collectTypeVars(arg)])
   )
   .exhaustive()
 

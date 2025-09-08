@@ -1,4 +1,8 @@
-export type Fn = (...args: any[]) => any
+export type Func = (...args: any[]) => any
+
+export type Reverse<T extends any[]> = T extends [infer Head, ...infer Tail]
+  ? [...Reverse<Tail>, Head]
+  : []
 
 export type Signal<T> = [T, (val: T) => void]
 export const setter = <O extends {}, P extends keyof O>(object: O, prop: P) => (val: O[P]) => { object[prop] = val }
