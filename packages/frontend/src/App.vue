@@ -46,6 +46,15 @@ const executeResult = ref<ExecuteResult>(Ok(null))
 const executeCount = ref(0)
 const distribution = reactive(new Map<string, number>())
 const distributionMax = ref(0)
+const distributionEntriesSorted = computed(() => checkResult.value.match(
+  ({ typeScheme: { type } }) =>{
+    const entries = [...distribution.entries()]
+    if (type.sub === 'con' && type.id === 'Num')
+      entries.sort((a, b) => Number(a[0]) - Number(b[0]))
+    return entries
+  },
+  () => [],
+))
 
 watch(parseResult, result => result.tap(() => {
   distribution.clear()
@@ -149,8 +158,11 @@ const inputEl = useTemplateRef('inputEl')
           <div class="section">
             Distribution ({{ executeCount }}x):
             <div class="dis-scroll">
-              <svg class="dis-graph" :width="distribution.size * 35" height="120">
-                <g v-for="[val, count], i of distribution.entries()" :key="val">
+              <svg class="dis-graph" :width="distribution.size * 35" :height="140">
+                <g
+                  v-for="[val, count], i of distributionEntriesSorted"
+                  :key="val"
+                >
                   <g :transform="`translate(${i * 35}, 0)`" class="dis-bar">
                     <rect
                       class="dis-bar-bar"
@@ -160,15 +172,20 @@ const inputEl = useTemplateRef('inputEl')
                       :height="100 * count / distributionMax"
                     />
                     <text
-                      class="dis-bar-count"
-                      :x="15"
-                      :y="100 - 5"
-                    >{{ count }}</text>
-                    <text
                       class="dis-bar-val"
                       :x="15"
                       :y="100 + 10"
                     >{{ val }}</text>
+                    <text
+                      class="dis-bar-count"
+                      :x="15"
+                      :y="100 + 20"
+                    >{{ count }}</text>
+                    <text
+                      class="dis-bar-count"
+                      :x="15"
+                      :y="100 + 30"
+                    >{{ (count / executeCount * 100).toFixed(1) }}%</text>
                   </g>
                 </g>
               </svg>
@@ -252,7 +269,7 @@ button + button {
 }
 
 .dis-bar-count {
-  fill: #333;
+  fill: lightgreen;
 }
 
 .dis-bar-val {
