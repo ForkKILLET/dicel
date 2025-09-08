@@ -9,13 +9,20 @@ const props = withDefaults(defineProps<{
   withParen?: boolean
 }>(), {
   withParen: false,
-  selection: () => ({ node: null })
+  selection: (): Selection => ({ node: null, fixedNode: null })
 })
 
 const is = (expr: Expr, types: ExprType[]): boolean => types.includes(expr.type)
 
 const onMouseMove = () => {
   if ('range' in props.node) props.selection.node = props.node
+}
+
+const onClick = () => {
+  if (! ('range' in props.node)) return
+  props.selection.fixedNode = props.selection.fixedNode?.astId === props.node.astId
+    ? null
+    : props.node
 }
 </script>
 
@@ -24,9 +31,11 @@ const onMouseMove = () => {
     class="expr"
     :class="{
       [node.type]: true,
-      selected: 'range' in node && selection.node?.astId === node.astId
+      selected: 'range' in node && selection.node?.astId === node.astId,
+      fixed: 'range' in node && selection.fixedNode?.astId === node.astId,
     }"
     @mousemove.stop="onMouseMove"
+    @click.stop="onClick"
   >
     <span v-if="withParen">(</span>
     <span v-if="node.type === 'num'">
@@ -105,7 +114,11 @@ const onMouseMove = () => {
 }
 
 .expr.selected {
-  background-color: grey;
+  background-color: dimgrey;
+}
+
+.expr.fixed {
+  outline: 1px solid lightblue;
 }
 
 .expr-i-2 {

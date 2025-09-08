@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive, ref, useTemplateRef, watch } from 'vue'
-import { parse, check, execute, type Node, type ExRange, type ExId, type Check, showValue } from '@dicel/core'
+import { parse, check, execute, type Node, type ExRange, type ExId, type Check, showValue, type ExprEx, type NodeEx } from '@dicel/core'
+import type { ParseErr } from 'parsecond'
+import { Ok, type Result } from 'fk-result'
 import NodeV from './components/Node.vue'
 import ValueV from './components/Value.vue'
 import TypeSchemeV from './components/TypeScheme.vue'
 import CheckErr from './components/CheckErr.vue'
+import NodeLabelled from './components/NodeLabelled.vue'
 import { incrementMap } from './utils'
-import type { ParseErr } from 'parsecond'
-import { Ok, type Result } from 'fk-result'
 
 const input = ref(localStorage['input'] ?? '')
 watch(input, () => {
@@ -15,59 +16,84 @@ watch(input, () => {
 })
 const parseResult = computed(() => parse(input.value))
 
-type ParseErrWrapper = {
-  type: 'Parse'
-  err: ParseErr | null
+namespace CheckPass {
+  export type Ok = Check.Ok & {
+    expr: ExprEx
+  }
+  export type ParseErrWrapped = {
+    type: 'Parse'
+    err: ParseErr | null
+  }
+  export type Err = Check.Err | ParseErrWrapped
+  export type Res = Result<Ok, Err>
 }
-type CheckResult = Result<Check.Ok, Check.Err | ParseErrWrapper>
-const checkResult = computed<CheckResult>(() => parseResult.value
+const checkResult = computed<CheckPass.Res>(() => parseResult.value
   .mapErr(err => ({ type: 'Parse', err }))
-  .bind(val => check(val.val))
-)
+  .bind(({ val: expr }) => check(expr).map(ok => ({ ...ok, expr }))
+))
 
-const doExecute = (checkVal: Check.Ok) => {
-  executeCount.value ++
+const doExecute = (checkVal: CheckPass.Ok) => {
+  disTotal.value ++
   executeResult.value = execute(checkVal.expr)
     .tap(val => {
-      const count = incrementMap(distribution, showValue(val))
-      if (count > distributionMax.value) distributionMax.value = count
+      const count = incrementMap(dis, showValue(val))
+      if (count > disMax.value) disMax.value = count
+    })
+    .tapErr(() => {
+      const count = incrementMap(dis, 'Error')
+      if (count > disMax.value) disMax.value = count
     })
 }
 const doExecuteToMultiple = (m: number) => {
   if (! checkResult.value.isOk) return
-  const n = m - executeCount.value % m
+  const n = m - disTotal.value % m
   for (let i = 0; i < n; i++) {
     doExecute(checkResult.value.val)
   }
 }
-type ExecuteResult = Result<any, Check.Err | ParseErrWrapper | Error>
-const executeResult = ref<ExecuteResult>(Ok(null))
 
-const executeCount = ref(0)
-const distribution = reactive(new Map<string, number>())
-const distributionMax = ref(0)
-const distributionEntriesSorted = computed(() => checkResult.value.match(
+namespace ExecutePass {
+  export type Ok = any
+  export type Err = Check.Err | Error
+  export type Res = Result<Ok, Err>
+}
+const executeResult = ref<ExecutePass.Res>(Ok(null))
+
+const disTotal = ref(0)
+const dis = reactive(new Map<string, number>())
+const disMax = ref(0)
+const disEntriesSorted = computed(() => checkResult.value.match(
   ({ typeScheme: { type } }) =>{
-    const entries = [...distribution.entries()]
+    const entries = [...dis.entries()]
+
     if (type.sub === 'con' && type.id === 'Num')
       entries.sort((a, b) => Number(a[0]) - Number(b[0]))
+
+    const errIndex = entries.findIndex(e => e[0] === 'Error')
+    if (errIndex > 0) {
+      const [errEntry] = entries.splice(errIndex, 1)
+      entries.unshift(errEntry)
+    }
+
     return entries
   },
   () => [],
 ))
 
 watch(parseResult, result => result.tap(() => {
-  distribution.clear()
-  distributionMax.value = 0
-  executeCount.value = 0
+  dis.clear()
+  disMax.value = 0
+  disTotal.value = 0
 }))
 watch(checkResult, result => result.tap(doExecute), { immediate: true })
 
 export type Selection = {
-  node: Node<ExRange & ExId> | null
+  node: NodeEx | null
+  fixedNode: NodeEx | null
 }
 const selection = reactive<Selection>({
-  node: null
+  node: null,
+  fixedNode: null,
 })
 
 declare global {
@@ -80,10 +106,11 @@ window.$node = null
 
 watch(selection, () => {
   if (! inputEl.value) return
-  inputEl.value.focus()
-  if (selection.node) {
-    window.$node = selection.node
-    const { start, end } = selection.node.range
+  const node = selection.node ?? selection.fixedNode
+  if (node) {
+    window.$node = node
+    const { start, end } = node.range
+    inputEl.value.focus()
     inputEl.value.setSelectionRange(start, end)
   }
   else {
@@ -112,14 +139,11 @@ const inputEl = useTemplateRef('inputEl')
 
           <div>
             Selected node:
-            <template v-if="selection.node">
-              [{{ selection.node.type }}#{{ selection.node.astId }}@{{ selection.node.range.start }}:{{ selection.node.range.end }}]
-              <NodeV
-                :node="selection.node"
-                :selection="{ node: null }"
-              />
-            </template>
-            <template v-else>[null]</template>
+            <NodeLabelled :node="selection.node" />
+          </div>
+          <div>
+            Fixed node:
+            <NodeLabelled :node="selection.fixedNode" />
           </div>
         </div>
         <div v-else class="parse err">
@@ -144,60 +168,67 @@ const inputEl = useTemplateRef('inputEl')
       </div>
 
       <div v-if="checkResult.isOk" class="execute result">
-        <div v-if="executeResult.isOk" class="execute ok">
-          <div class="section">
-            <div>
-              Result:
-              <button @click="doExecute(checkResult.val)">Re-run</button>
-              <button @click="doExecuteToMultiple(100)">Re-run to 100x</button>
-              <button @click="doExecuteToMultiple(1000)">Re-run to 1000x</button>
-            </div>
-            <ValueV :value="executeResult.val" />
-          </div>
-
-          <div class="section">
-            Distribution ({{ executeCount }}x):
-            <div class="dis-scroll">
-              <svg class="dis-graph" :width="distribution.size * 35" :height="140">
-                <g
-                  v-for="[val, count], i of distributionEntriesSorted"
-                  :key="val"
-                >
-                  <g :transform="`translate(${i * 35}, 0)`" class="dis-bar">
-                    <rect
-                      class="dis-bar-bar"
-                      :x="0"
-                      :y="100 * (1 - count / distributionMax)"
-                      :width="30"
-                      :height="100 * count / distributionMax"
-                    />
-                    <text
-                      class="dis-bar-val"
-                      :x="15"
-                      :y="100 + 10"
-                    >{{ val }}</text>
-                    <text
-                      class="dis-bar-count"
-                      :x="15"
-                      :y="100 + 20"
-                    >{{ count }}</text>
-                    <text
-                      class="dis-bar-count"
-                      :x="15"
-                      :y="100 + 30"
-                    >{{ (count / executeCount * 100).toFixed(1) }}%</text>
-                  </g>
-                </g>
-              </svg>
-            </div>
-          </div>
+        <div class="section">
+          Result:
+          <button @click="doExecute(checkResult.val)">Re-run</button>
+          <button @click="doExecuteToMultiple(100)">Re-run to 100x</button>
+          <button @click="doExecuteToMultiple(1000)">Re-run to 1000x</button>
         </div>
-        <div v-else class="execute err">
+
+        <div v-if="executeResult.isOk" class="execute ok section">
+          Value:
+          <ValueV :value="executeResult.val" />
+        </div>
+        <div v-else class="execute err section">
           Execute Error:
           <pre>{{ executeResult.err }}</pre>
         </div>
+
+        <div class="section">
+          Distribution (<span class="dis-total">{{ disTotal }}x</span>):
+          <div class="dis-scroll">
+            <svg class="dis-graph" :width="dis.size * 35" :height="140">
+              <g
+                v-for="[val, count], i of disEntriesSorted"
+                :key="val"
+              >
+                <g
+                  :transform="`translate(${i * 35}, 0)`"
+                  class="dis-bar"
+                  :class="{ 'dis-bar-err': val === 'Error' }"
+                >
+                  <rect
+                    class="dis-bar-bar"
+                    :x="0"
+                    :y="100 * (1 - count / disMax)"
+                    :width="30"
+                    :height="100 * count / disMax"
+                  />
+                  <text
+                    class="dis-bar-val"
+                    :x="15"
+                    :y="100 + 10"
+                  >{{ val }}</text>
+                  <text
+                    class="dis-bar-count"
+                    :x="15"
+                    :y="100 + 20"
+                  >{{ count }}</text>
+                  <text
+                    class="dis-bar-count"
+                    :x="15"
+                    :y="100 + 30"
+                  >{{ (count / disTotal * 100).toFixed(1) }}%</text>
+                </g>
+              </g>
+            </svg>
+          </div>
+        </div>
       </div>
     </main>
+    <footer>
+      <a href="https://github.com/ForkKILLET/Dicel">Dicel</a> made by <a href="https://github.com/ForkKILLET" target="_blank">ForkKILLET</a> with &gt;_&lt;
+    </footer>
   </div>
 </template>
 
@@ -208,32 +239,49 @@ const inputEl = useTemplateRef('inputEl')
   height: 100vh;
   place-items: center;
   align-items: stretch;
+  font-family: monospace;
 }
 
 .section {
   padding: 1em;
 }
 
+.sub-section {
+  padding: .5em 0;
+}
+
 main {
-  font-family: monospace;
   padding: 1em;
 }
 
-.err {
-  color: crimson
+footer {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  text-align: center;
 }
 
-.input-container > textarea {
+.err {
+  color: lightcoral;
+}
+
+textarea {
   box-sizing: border-box;
   width: 50%;
   min-height: 20vh;
   resize: vertical;
+  outline: none;
+  border: 1px solid grey;
+}
+textarea:hover, textarea:focus {
+  border-color: lightblue;
 }
 
 button {
   border: none;
   outline: none;
   font: inherit;
+  color: ivory;
   padding: 0;
   background: unset;
 }
@@ -244,13 +292,21 @@ button::before {
 button::after {
   content: ']';
 }
-button:hover {
+button:hover, button:focus {
   text-decoration: underline;
   cursor: pointer;
 }
 
 button + button {
   margin-left: 1ch;
+}
+
+pre {
+  margin: 0;
+}
+
+.dis-total {
+  color: lightgreen;
 }
 
 .dis-scroll {
@@ -274,6 +330,10 @@ button + button {
 
 .dis-bar-val {
   fill: ivory;
+}
+
+.dis-bar-err .dis-bar-bar, .dis-bar-err .dis-bar-val {
+  fill: lightcoral;
 }
 
 </style>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TypeSource } from '@dicel/core'
-import Node from './Node.vue'
+import NodeV from './Node.vue'
 
 defineProps<{
   source: TypeSource
@@ -9,10 +9,10 @@ defineProps<{
 
 <template>
   <template v-if="source.type === 'actual'">
-    expression <Node :node="source.expr" />
+    expression <NodeV :node="source.expr" />
   </template>
   <template v-else-if="source.type === 'actual.Func'">
-    application <Node :node="source.expr" />
+    application <NodeV :node="source.expr" />
   </template>
   <template v-else-if="source.type === 'elim.Func.param'">
     the {{ source.from.source.type === 'actual.Func' ? 'argument' : 'parameter' }}
@@ -22,13 +22,13 @@ defineProps<{
     the return type of <TypeSource :source="source.from.source" />
   </template>
   <template v-else-if="source.type === 'expect.Cond'">
-    the expected type of the condition of <Node :node="source.condExpr" />
+    the expected type of the condition of <NodeV :node="source.condExpr" />
   </template>
   <template v-else-if="source.type === 'infer.Func.ret'">
-    the inferred return type of function expression <Node :node="source.funcExpr" />
+    the inferred return type of function expression <NodeV :node="source.funcExpr" />
   </template>
   <template v-else-if="source.type === 'infer.Let.val'">
-    the inferred value type of expression <Node :node="source.valExpr" />
-    in let expression <Node :node="source.letExpr" />
+    the inferred value type of expression <NodeV :node="source.valExpr" />
+    in let expression <NodeV :node="source.letExpr" />
   </template>
 </template>
