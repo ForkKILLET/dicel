@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { type TypeScheme } from '@dicel/core'
-import Type from './Type.vue'
+import Type from './TypeV.vue'
 
 defineProps<{
   typeScheme: TypeScheme
@@ -9,9 +9,9 @@ defineProps<{
 
 <template>
   <div class="type-scheme">
-    <span v-if="typeScheme.typeParams.size">
+    <span v-if="typeScheme.typeParamSet.size">
       <span class="type-scheme-op">forall</span>
-      <span class="type-var" v-for="id of typeScheme.typeParams" :key="id">{{ id }}</span>
+      <span class="type-var" v-for="id of typeScheme.typeParamSet" :key="id">{{ id }}</span>
       <span class="type-scheme-op">.</span>
     </span>
     <Type :type="typeScheme.type" /> 

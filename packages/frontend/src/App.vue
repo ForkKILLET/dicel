@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref, useTemplateRef, watch } from 'vue'
-import { parse, check, execute, type Node, type ExRange, type ExId, type Check, showValue, type ExprEx, type NodeEx, type Value, UnitValue } from '@dicel/core'
+import { parse, check, execute, type Node, type ExRange, type ExId, type Check, type ExprEx, type NodeEx, Value, UnitValue, ErrValue, builtinData, Type, uncurryApplyType, TypeSubst } from '@dicel/core'
 import type { ParseErr } from 'parsecond'
 import { Ok, type Result } from 'fk-result'
-import NodeV from './components/Node.vue'
-import ValueV from './components/Value.vue'
+import NodeV from './components/NodeV.vue'
+import ValueV from './components/ValueV.vue'
 import TypeSchemeV from './components/TypeScheme.vue'
 import CheckErr from './components/CheckErr.vue'
 import NodeLabelled from './components/NodeLabelled.vue'
-import { incrementMap } from './utils'
+import type { Cmp } from './utils'
+import { zip } from 'remeda'
 
 const input = ref(localStorage['input'] ?? '')
 watch(input, () => {
@@ -34,15 +35,17 @@ const checkResult = computed<CheckPass.Res>(() => parseResult.value
 
 const doExecute = (checkVal: CheckPass.Ok) => {
   disTotal.value ++
-  executeResult.value = execute(checkVal.expr)
-    .tap(val => {
-      const count = incrementMap(dis, showValue(val))
-      if (count > disMax.value) disMax.value = count
-    })
-    .tapErr(() => {
-      const count = incrementMap(dis, 'Error')
-      if (count > disMax.value) disMax.value = count
-    })
+  const result = execute(checkVal.expr)
+  executeResult.value = result
+
+  const { label, value } = result.match(
+    value => ({ label: Value.show(value), value }),
+    err => ({ label: 'Error', value: ErrValue(err.message) })
+  )
+
+  const count = (dis.get(label)?.count ?? 0) + 1
+  dis.set(label, { label, value, count })
+  if (count > disMax.value) disMax.value = count
 }
 const doExecuteToMultiple = (m: number) => {
   if (! checkResult.value.isOk) return
@@ -60,14 +63,74 @@ namespace ExecutePass {
 const executeResult = ref<ExecutePass.Res>(Ok(UnitValue()))
 
 const disTotal = ref(0)
-const dis = reactive(new Map<string, number>())
+
+type DisBucket = {
+  label: string
+  value: Value
+  count: number
+}
+const dis = reactive(new Map<string, DisBucket>())
 const disMax = ref(0)
 
 const disMeasureEl = useTemplateRef('disMeasure')
 const disChWidth = computed(() => disMeasureEl.value?.getBoundingClientRect().width ?? 0)
 const disChHeight = computed(() => disMeasureEl.value?.getBoundingClientRect().height ?? 0)
+const sortByCount = ref(true)
+const sortDir = ref(1)
 
-type DisCase = {
+const makeCmp = (type: Type): Cmp<Value> => {
+  if (type.sub !== 'con' && type.sub !== 'apply') return () => 0
+  
+  const [con, ...args] = type.sub === 'con'
+    ? [type]
+    : uncurryApplyType(type)
+  Type.assert(con, 'con')
+
+  if (con.id === 'Num') return (a, b) => {
+    Value.assert(a, 'num')
+    Value.assert(b, 'num')
+    return a.val - b.val
+  }
+
+  const data = builtinData[con.id]
+  return (a, b) => {
+    Value.assert(a, 'con')
+    Value.assert(b, 'con')
+
+    const aIndex = data.cons.findIndex(con => con.id === a.id)
+    const bIndex = data.cons.findIndex(con => con.id === b.id)
+
+    const deltaIndex = aIndex - bIndex
+    if (deltaIndex !== 0) return deltaIndex
+    
+    const con = data.cons[aIndex]
+    const conSubst: TypeSubst = Object.fromEntries(zip(data.typeParams, args))
+
+    return zip(a.args, b.args)
+      .reduce((res, [aArg, bArg], index) => {
+        const argType = TypeSubst.apply(conSubst)(con.params[index])
+        return res || makeCmp(argType)(aArg, bArg)
+      }, 0)
+  }
+}
+
+const cmpBase = computed<Cmp<DisBucket>>(() => {
+  console.log('cmpBase recompute')
+  if (! checkResult.value.isOk) return () => 0
+
+  if (sortByCount.value)
+    return (a, b) => a.count - b.count
+
+  const { type } = checkResult.value.val.typeScheme
+
+  return (a, b) => makeCmp(type)(a.value, b.value)
+})
+
+const cmp = computed<Cmp<DisBucket>>(() =>
+  (a, b) => sortDir.value * cmpBase.value(a, b)
+)
+
+type DisBar = {
   x: number
   y: number
   width: number
@@ -77,44 +140,39 @@ type DisCase = {
   prob: string
   count: number
 }
-const disCases = computed<DisCase[]>(() => checkResult.value.match(
-  ({ typeScheme: { type } }) => {
-    if (! disTotal.value || ! disMax.value || ! disChWidth.value) return []
+const disBars = computed<DisBar[]>(() => {
+  if (! disTotal.value || ! disMax.value || ! disChWidth.value) return []
 
-    const entries = [...dis.entries()]
+  const entries = [...dis.entries()]
+    .sort((a, b) => cmp.value(a[1], b[1]))
 
-    if (type.sub === 'con' && type.id === 'Num')
-      entries.sort((a, b) => Number(a[0]) - Number(b[0]))
+  const errIndex = entries.findIndex(e => e[0] === 'Error')
+  if (errIndex > 0) {
+    const [errEntry] = entries.splice(errIndex, 1)
+    entries.unshift(errEntry)
+  }
 
-    const errIndex = entries.findIndex(e => e[0] === 'Error')
-    if (errIndex > 0) {
-      const [errEntry] = entries.splice(errIndex, 1)
-      entries.unshift(errEntry)
-    }
+  const cases: DisBar[] = []
+  let x = 0.5 * disChWidth.value
+  for (const [label, { count }] of entries) {
+    const ratioToMax = count / disMax.value
+    const width = Math.max(5, label.length) * disChWidth.value
+    cases.push({
+      x,
+      y: 100 * (1 - ratioToMax),
+      width,
+      height: 100 * ratioToMax,
+      label: label,
+      prob: `${(count / disTotal.value * 100).toFixed(1)}%`,
+      count,
+    })
+    x += width + 5
+  }
 
-    const cases: DisCase[] = []
-    let x = 0.5 * disChWidth.value
-    for (const [label, count] of entries) {
-      const ratioToMax = count / disMax.value
-      const width = Math.max(5, label.length) * disChWidth.value
-      cases.push({
-        x,
-        y: 100 * (1 - ratioToMax),
-        width,
-        height: 100 * ratioToMax,
-        label: label,
-        prob: `${(count / disTotal.value * 100).toFixed(1)}%`,
-        count,
-      })
-      x += width + 5
-    }
-
-    return cases
-  },
-  () => [],
-))
+  return cases
+})
 const disTotalWidth = computed(() => {
-  const lastCase = disCases.value.at(-1)
+  const lastCase = disBars.value.at(-1)
   if (! lastCase) return 0
   const { x, width } = lastCase
   return x + width + 0.5 * disChWidth.value
@@ -217,7 +275,7 @@ const inputEl = useTemplateRef('inputEl')
 
         <div v-if="executeResult.isOk" class="execute ok section">
           Value:
-          <ValueV :val="executeResult.val" />
+          <ValueV :value="executeResult.val" />
         </div>
         <div v-else class="execute err section">
           Execute Error:
@@ -225,14 +283,18 @@ const inputEl = useTemplateRef('inputEl')
         </div>
 
         <div class="section">
-          Distribution (<span class="dis-total">{{ disTotal }}x</span>):
+          <div>
+            Distribution (<span class="dis-total">{{ disTotal }}x</span>):
+            <button @click="sortByCount = ! sortByCount">Sort by {{ sortByCount ? 'label' : 'count' }}</button>
+            <button @click="sortDir = - sortDir">Sort {{ sortDir > 0 ? 'desc' : 'asc' }}</button>
+          </div>
           <div class="dis-scroll">
             <div class="dis-measure-container">
               <span class="dis-measure" ref="disMeasure">x</span>
             </div>
             <svg class="dis-graph" :width="10 + disTotalWidth" :height="140">
               <g
-                v-for="{ x, y, width, height, label, count, prob } of disCases"
+                v-for="{ x, y, width, height, label, count, prob } of disBars"
                 :key="label"
                   class="dis-bar"
                   :class="{ 'dis-bar-err': label === 'Error' }"
@@ -334,6 +396,9 @@ button::after {
 button:hover, button:focus {
   text-decoration: underline;
   cursor: pointer;
+}
+button:focus {
+  text-decoration-style: dashed;
 }
 
 button + button {

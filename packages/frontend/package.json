@@ -11,6 +11,7 @@
   "dependencies": {
     "@dicel/core": "workspace:*",
     "fk-result": "^0.2.0",
+    "remeda": "^2.30.0",
     "vue": "^3.5.20"
   },
   "devDependencies": {

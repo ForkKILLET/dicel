@@ -58,6 +58,9 @@ importers:
       fk-result:
         specifier: link:../../../../.local/share/pnpm/global/5/node_modules/fk-result
         version: link:../../../../.local/share/pnpm/global/5/node_modules/fk-result
+      remeda:
+        specifier: ^2.30.0
+        version: 2.30.0
       vue:
         specifier: ^3.5.20
         version: 3.5.20(typescript@5.8.3)

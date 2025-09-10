@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ExId, Expr, ExprType, ExRange, Node } from '@dicel/core'
 import type { Selection } from '../App.vue'
-import Type from './Type.vue'
+import TypeV from './TypeV.vue'
 
 const props = withDefaults(defineProps<{
   node: Node<ExRange & ExId> | Node,
@@ -27,7 +27,7 @@ const onClick = () => {
 </script>
 
 <template>
-  <div
+  <span
     class="expr"
     :class="{
       [node.type]: true,
@@ -47,57 +47,47 @@ const onClick = () => {
     <span v-else-if="node.type === 'var'">
       <span class="expr-var">{{ node.id }}</span>
     </span>
-    <span v-else-if="node.type === 'varOp'">
-      <span class="expr-op">{{ node.id }}</span>
-    </span>
     <span v-else-if="node.type === 'cond'">
-      <Node :node="node.cond" :selection="selection" />
+      <NodeV :node="node.cond" :selection="selection" />
       <span class="expr-op expr-spaced">?</span>
-      <Node :node="node.yes" :selection="selection" />
+      <NodeV :node="node.yes" :selection="selection" />
       <span class="expr-op expr-spaced">:</span>
-      <Node :node="node.no" :selection="selection" />
+      <NodeV :node="node.no" :selection="selection" />
     </span>
     <span v-else-if="node.type === 'let'">
       <span class="expr-kw">let</span>
-      <Node :node="node.binding" :selection="selection" />
+      <NodeV :node="node.binding" :selection="selection" />
       <div class="expr-i-2">
         <span class="expr-kw expr-i-n1">in</span>
-        <Node :node="node.body" :selection="selection" />
+        <NodeV :node="node.body" :selection="selection" />
       </div>
     </span>
     <span v-else-if="node.type === 'binding'">
-      <Node :node="node.lhs" :selection="selection" />
+      <NodeV :node="node.lhs" :selection="selection" />
       <span class="expr-op expr-spaced">=</span>
-      <Node :node="node.rhs" :selection="selection" />
+      <NodeV :node="node.rhs" :selection="selection" />
     </span>
     <span v-else-if="node.type === 'apply'">
-      <template v-if="node.func.type === 'apply' && node.func.func.type === 'varOp'">
-        <Node :node="node.func.arg" :selection="selection" :with-paren="! is(node.func.arg, ['var', 'num', 'unit'])"  />
-        <Node class="expr-spaced" :node="node.func.func" :selection="selection" />
-        <Node :node="node.arg" :selection="selection" :with-paren="! is(node.arg, ['var', 'num', 'unit'])"  />
-      </template>
-      <template v-else>
-        <Node :node="node.func" :selection="selection" :with-paren="! is(node.func, ['var', 'num', 'unit', 'apply'])" />
-        <span class="expr-spaced"></span>
-        <Node :node="node.arg" :selection="selection" :with-paren="! is(node.arg, ['var', 'num', 'unit'])" />
-      </template>
+      <NodeV :node="node.func" :selection="selection" :with-paren="! is(node.func, ['var', 'num', 'unit', 'apply'])" />
+      <span class="expr-spaced"></span>
+      <NodeV :node="node.arg" :selection="selection" :with-paren="! is(node.arg, ['var', 'num', 'unit'])" />
     </span>
     <span v-else-if="node.type === 'lambda'">
       <span class="expr-op">\</span>
-      <Node :node="node.param" :selection="selection" />
+      <NodeV :node="node.param" :selection="selection" />
       <span class="expr-op expr-spaced">-&gt;</span>
-      <Node :node="node.body" :selection="selection" />
+      <NodeV :node="node.body" :selection="selection" />
     </span>
     <span v-else-if="node.type === 'ann'">
-      <Node :node="node.expr" :selection="selection" :with-paren="is(node.expr, ['lambda'])" />
+      <NodeV :node="node.expr" :selection="selection" :with-paren="is(node.expr, ['lambda'])" />
       <span class="expr-op expr-spaced">::</span>
-      <Node :node="node.ann" :selection="selection" />
+      <NodeV :node="node.ann" :selection="selection" />
     </span>
     <span v-else-if="node.type === 'type'">
-      <Type :type="node.val" />
+      <TypeV :type="node.val" />
     </span>
     <span v-if="withParen">)</span>
-  </div>
+  </span>
 </template>
 
 <style scoped>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { NodeEx } from '@dicel/core'
-import NodeV from './Node.vue'
+import NodeV from './NodeV.vue'
 
 defineProps<{
   node: NodeEx | null

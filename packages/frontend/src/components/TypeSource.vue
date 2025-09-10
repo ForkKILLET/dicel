@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TypeSource } from '@dicel/core'
-import NodeV from './Node.vue'
+import NodeV from './NodeV.vue'
 
 defineProps<{
   source: TypeSource
