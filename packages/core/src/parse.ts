@@ -39,12 +39,11 @@ const reverseSeq = <T, U>([head, tail]: [T, [U, T][]]): [T, [U, T][]] =>
 type Associativity = 'left' | 'right'
 
 export const pBinOp = <
-  const O extends Ops[],
   A extends Associativity,
   T extends Expr<ExRange>,
   E
 >(
-  ops: O,
+  ops: string[],
   associativity: A,
   base: Parser<T, E>,
 ): Parser<Expr<ExRange>, E> => p.map(
@@ -55,13 +54,13 @@ export const pBinOp = <
     ({ val: seq, range }) => (associativity === 'left'
       ? pipe(seq, ([head, tail]) => tail
         .reduce<Expr<ExRange>>(
-          (lhs, [{ val: op, range: opRange }, rhs]) => ApplyExprCurried({ type: 'varOp', id: op, range: opRange }, [lhs, rhs], range),
+          (lhs, [{ val: op, range: opRange }, rhs]) => ApplyExprCurried({ type: 'var', id: op, range: opRange }, [lhs, rhs], range),
           head
         )
       )
       : pipe(reverseSeq(seq), ([head, tail]) => tail
         .reduce<Expr<ExRange>>(
-          (rhs, [{ val: op, range: opRange }, lhs]) => ApplyExprCurried({ type: 'varOp', id: op, range: opRange }, [lhs, rhs], range),
+          (rhs, [{ val: op, range: opRange }, lhs]) => ApplyExprCurried({ type: 'var', id: op, range: opRange }, [lhs, rhs], range),
           head
         )
       )
@@ -77,29 +76,9 @@ export const pNum: Parser<NumExpr<ExRange>> = pRanged(p.map(p.decimal, val => ({
   val,
 })))
 
-export type VarOpExpr<Ex = {}> = Ex & {
-  type: 'varOp'
-  id: Ops
-}
-
 export type UnitExpr<Ex = {}> = Ex & {
   type: 'unit'
 }
-
-export const pParenExpr: Parser<Expr<ExRange>> = p.lazy(() => pRanged(p.parens(p.spaced(p.alt([
-  p.map(p.alt(Ops.map(p.str)), (op: Ops): VarOpExpr => ({
-    type: 'varOp',
-    id: op,
-  })),
-  pExpr,
-  p.pure<UnitExpr>({ type: 'unit' }),
-])))))
-
-export const pPrimaryExpr: Parser<Expr<ExRange>> = p.lazy(() => p.alt([
-  pParenExpr,
-  pNum,
-  pVar,
-]))
 
 export type Identifier = string
 export const RESERVE_WORDS = [ 'let', 'in' ]
@@ -110,6 +89,31 @@ export const pIdentifier: Parser<Identifier> = p.bind(
     : Ok(id)
   )
 )
+
+export const SYMBOL_CHARS = '+-*/^%<>=!~&|.$'
+export const isSymbol = (str: string) => [...str].every(ch => SYMBOL_CHARS.includes(ch))
+export const pSymbol = p.join(p.some(p.oneOf(SYMBOL_CHARS)))
+
+export const pParenExpr: Parser<Expr<ExRange>> = p.lazy(() => pRanged(p.parens(p.spaced(p.alt([
+  p.map(pSymbol, (id): VarExpr => ({ type: 'var', id })),
+  p.map(p.char(','), (): VarExpr => ({ type: 'var', id: ',' })),
+  p.map(
+    p.seq([pExpr, p.spaced(p.ranged(p.char(','))), pExpr]),
+    ([lhs, comma, rhs]) => ApplyExprCurried(
+      { type: 'var', id: ',', range: comma.range },
+      [lhs, rhs],
+      Range.between(lhs.range, rhs.range)
+    )
+  ),
+  pExpr,
+  p.pure<UnitExpr>({ type: 'unit' }),
+])))))
+
+export const pPrimaryExpr: Parser<Expr<ExRange>> = p.lazy(() => p.alt([
+  pParenExpr,
+  pNum,
+  pVar,
+]))
 
 export type VarExpr<Ex = {}> = Ex & {
   type: 'var'
@@ -259,6 +263,20 @@ export const pLetExpr: Parser<LetExpr<ExRange>> = p.lazy(() => p.bind(
   )
 ))
 
+export type Pattern<Ex = {}> = Ex & {
+  type: 'pattern'
+}
+
+export type Case<Ex = {}> = Ex & {
+  pattern: Pattern<Ex>
+  body: Expr<Ex>
+}
+
+export type CaseExpr<Ex = {}> = Ex & {
+  type: 'case'
+  cases: Case<Ex>[]
+}
+
 export type LambdaExpr<Ex = {}> = Ex & {
   type: 'lambda'
   param: VarExpr<Ex>
@@ -361,10 +379,37 @@ export type Expr<Ex = {}> =
   | LetExpr<Ex>
   | CondExpr<Ex>
   | ApplyExpr<Ex>
-  | VarOpExpr<Ex>
   | VarExpr<Ex>
   | LambdaExpr<Ex>
   | AnnExpr<Ex>
+
+export namespace Expr {
+  export const show = (expr: Expr): string => {
+    switch (expr.type) {
+      case 'num':
+        return String(expr.val)
+      case 'unit':
+        return '()'
+      case 'var':
+        return expr.id
+      case 'cond':
+        return `(${show(expr.cond)} ? ${show(expr.yes)} : ${show(expr.no)})`
+      case 'let':
+        return `let ${show(expr.binding.lhs)} = ${show(expr.binding.rhs)} in ${show(expr.body)}`
+      case 'lambda':
+        return `(\\${expr.param.id} -> ${show(expr.body)})`
+      case 'apply':
+        if (expr.func.type === 'apply' && expr.func.func.type === 'var' && isSymbol(expr.func.func.id)) {
+          return `(${show(expr.func.arg)} ${expr.func.func.id} ${show(expr.arg)})`
+        }
+        return `(${show(expr.func)} ${show(expr.arg)})`
+      case 'var':
+        return expr.id
+      case 'ann':
+        return `(${show(expr.expr)} :: ${Type.show(expr.ann.val)})`
+    }
+  }
+}
 
 export type Node<Ex = {}> =
   | Expr<Ex>
@@ -380,25 +425,6 @@ export const pExpr: Parser<Expr<ExRange>, null | ExprParseErr> = p.alt([
   pTermExpr,
 ])
 
-export const Ops = [
-  '!=',
-  '==',
-  '<=',
-  '<',
-  '>=',
-  '>',
-  '+',
-  '-',
-  '*',
-  '/',
-  '%',
-  '&&',
-  '||',
-  '.',
-  '$',
-] as const
-export type Ops = typeof Ops[number]
-
 const withId = <Ex>(expr: Expr<Ex>): Expr<Ex & ExId> => {
   let id = 0
 
@@ -407,7 +433,6 @@ const withId = <Ex>(expr: Expr<Ex>): Expr<Ex & ExId> => {
     switch (newNode.type) {
       case 'num':
       case 'var':
-      case 'varOp':
       case 'type':
         break
       case 'apply':

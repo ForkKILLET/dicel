@@ -1,11 +1,10 @@
 import { mapValues } from 'remeda'
 import { Result } from 'fk-result'
-import { match } from 'ts-pattern'
-import { builtinVars, builtinOps } from './builtin'
+import { builtinFuncs, builtinOps, builtinDataCons } from './builtin'
 import { Expr } from './parse'
-import { Value, NumValue, UnitValue, assertVal, FuncValue } from './values'
+import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
 
-export type Ref = { val: Value }
+export type Ref = { value: Value }
 export type Scope = Record<string, Ref>
 
 export type RuntimeEnv = {
@@ -15,7 +14,10 @@ export type RuntimeEnv = {
 
 export namespace RuntimeEnv {
   export const root = (): RuntimeEnv => ({
-    scope: mapValues(builtinVars, (builtin): Ref => ({ val: builtin.value })),
+    scope: mapValues(
+      { ...builtinFuncs, ...builtinOps, ...builtinDataCons },
+      (builtin): Ref => ({ value: builtin.value })
+    ),
     parent: null,
   })
 
@@ -25,7 +27,7 @@ export namespace RuntimeEnv {
   })
 
   export const resolve = (id: string, env: RuntimeEnv): Value => {
-    if (id in env.scope) return env.scope[id].val
+    if (id in env.scope) return env.scope[id].value
     if (env.parent) return resolve(id, env.parent)
     throw new Error(`Undefined variable '${id}' (unreachable)`)
   }
@@ -58,33 +60,31 @@ const _execute = (expr: Expr, env: RuntimeEnv): Value => {
         return UnitValue()
       case 'cond': {
         const cond = _execute(expr.cond, env)
-        assertVal(cond, 'bool')
-        return cond.val ? _execute(expr.yes, env) : _execute(expr.no, env)
+        Value.assert(cond, 'con')
+        return cond.id === 'True' ? _execute(expr.yes, env) : _execute(expr.no, env)
       }
       case 'var':
         return RuntimeEnv.resolve(expr.id, env)
-      case 'varOp':
-        return builtinOps[expr.id].value
       case 'let': {
         const { lhs: { id }, rhs } = expr.binding
-        const ref: Ref = { val: UnitValue() }
+        const ref: Ref = { value: ErrValue(`Uninitialized variable '${id}'`) }
         const envI = RuntimeEnv.extend(env, { [id]: ref })
-        ref.val = _execute(rhs, envI)
+        ref.value = _execute(rhs, envI)
         return _execute(expr.body, envI)
       }
       case 'apply': {
         const func = _execute(expr.func, env)
-        assertVal(func, 'func')
+        Value.assert(func, 'func')
         return func.val(_execute(expr.arg, env))
       }
       case 'lambda':
         return FuncValue((arg: Value) => _execute(expr.body, RuntimeEnv.extend(env, {
-          [expr.param.id]: { val: arg }
+          [expr.param.id]: { value: arg }
         })))
       case 'ann':
         return _execute(expr.expr, env)
       default:
-        throw new Error(`Unknown expr: ${expr}`)
+        throw new Error(`Unknown expr type: ${(expr as { type: string }).type} (unreachable)`)
     }
   }
   const val = _eval()
@@ -95,14 +95,3 @@ const _execute = (expr: Expr, env: RuntimeEnv): Value => {
 export const execute = (expr: Expr, env: RuntimeEnv = RuntimeEnv.root()): Result<Value, Error> =>
   Result.wrap(() => _execute(expr, env))
 
-export const showValue = (val: Value): string => _showValue(val)
-const _showValue = (val: Value, withParen = false): string => (withParen ? '(' : '') + match(val)
-  .with({ tag: 'num' }, ({ val }) => String(val))
-  .with({ tag: 'bool' }, ({ val }) => val ? 'True' : 'False')
-  .with({ tag: 'unit' }, () => '()')
-  .with({ tag: 'func' }, () => 'Func')
-  .with({ tag: 'con' }, ({ id, args }) =>
-    `${id}${` ${args.map(arg => _showValue(arg, arg.tag === 'con')).join('')}`}`
-  )
-  .with({ tag: 'err' }, () => `Err`)
-  .exhaustive() + (withParen ? ')' : '')

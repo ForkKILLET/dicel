@@ -1,15 +1,15 @@
 import { match } from 'ts-pattern'
 import { map, mapValues, pipe, range, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
-import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, showType, showTypeScheme, ApplyType } from './types'
+import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, ApplyType } from './types'
 import { Expr } from './parse'
 
 export type TypeSubst = TypeDict
 export namespace TypeSubst {
-  const _applyScheme = (subst: TypeSubst) => (typeParams: Set<string>) => {
+  const _applyScheme = (subst: TypeSubst) => (typeParamSet: Set<string>) => {
     const _apply = (type: Type): Type => match(type)
       .with({ sub: 'con' }, () => type)
-      .with({ sub: 'var' }, ({ id }) => typeParams.has(id) ? type : subst[id] ?? type)
+      .with({ sub: 'var' }, ({ id }) => typeParamSet.has(id) ? type : subst[id] ?? type)
       .with({ sub: 'func' }, type => FuncType(_apply(type.param), _apply(type.ret)))
       .with({ sub: 'apply' }, type => ApplyType(_apply(type.func), _apply(type.arg)))
       .exhaustive()
@@ -19,7 +19,7 @@ export namespace TypeSubst {
   export const apply = (subst: TypeSubst) => _applyScheme(subst)(new Set)
 
   export const applyScheme = (subst: TypeSubst) =>
-    TypeScheme.map(({ typeParams, type }: TypeScheme) => _applyScheme(subst)(typeParams)(type))
+    TypeScheme.map(({ typeParamSet, type }: TypeScheme) => _applyScheme(subst)(typeParamSet)(type))
 
   export const applyDict = (subst: TypeSubst) => (dict: TypeDict): TypeDict =>
     mapValues(dict, apply(subst))
@@ -199,7 +199,7 @@ export class TypeVarState {
   }
 
   instantiate(scheme: TypeScheme): Type {
-    const subst = TypeSubst.compose([...scheme.typeParams].map(id => ({ [id]: this.fresh() })))
+    const subst = TypeSubst.compose([...scheme.typeParamSet].map(id => ({ [id]: this.fresh() })))
     return TypeSubst.apply(subst)(scheme.type)
   }
 }
@@ -218,18 +218,18 @@ export const collectTypeVars = (type: Type): Set<string> => match(type)
   .exhaustive()
 
 export const generalize = (type: Type, existingVars = new Set<string>): TypeScheme => ({
-  typeParams: collectTypeVars(type).difference(existingVars),
+  typeParamSet: collectTypeVars(type).difference(existingVars),
   type,
 })
 
 export const prettify = (typeScheme: TypeScheme): TypeScheme => {
-  const typeParamCount = typeScheme.typeParams.size
+  const typeParamCount = typeScheme.typeParamSet.size
   const typeParamList = range(0, typeParamCount).map(i =>
     typeParamCount <= 3 ? String.fromCharCode('a'.charCodeAt(0) + i) : `t${i + 1}`
   )
-  const subst: TypeSubst = Object.fromEntries([...typeScheme.typeParams].map((id, i) => [id, VarType(typeParamList[i])]))
+  const subst: TypeSubst = Object.fromEntries([...typeScheme.typeParamSet].map((id, i) => [id, VarType(typeParamList[i])]))
   return {
-    typeParams: new Set(typeParamList),
+    typeParamSet: new Set(typeParamList),
     type: TypeSubst.apply(subst)(typeScheme.type),
   }
 }
@@ -243,10 +243,10 @@ export const infer = (expr: Expr, env: TypeSchemeDict = {}): Infer.Res => {
       subst: {},
     }))
     .with({ type: 'unit' }, () => Ok({
-      type: TypeSourced.infer(ConType('()'), expr),
+      type: TypeSourced.infer(ConType(''), expr),
       subst: {},
     }))
-    .with({ type: 'var' }, { type: 'varOp' }, ({ id }) =>
+    .with({ type: 'var' }, ({ id }) =>
       id in env
         ? Ok({
           type: TypeSourced.infer(typeVarState.instantiate(env[id]), expr),

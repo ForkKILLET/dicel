@@ -1,4 +1,7 @@
 export type Func = (...args: any[]) => any
+export type Cmp<T> = (a: T, b: T) => number
+
+export type Endo<T> = (x: T) => T
 
 export type Reverse<T extends any[]> = T extends [infer Head, ...infer Tail]
   ? [...Reverse<Tail>, Head]
@@ -20,6 +23,14 @@ export class Counter<K> extends Map<K, number> {
   }
 }
 
-export const forEachReverse = <T>(array: T[], fn: (item: T, index: number) => void) => {
-  for (let i = array.length - 1; i >= 0; i --) fn(array[i], i)
+export const describeToShow = <T, D>(
+  describe: (input: T) => D,
+  show: (desc: D, show: (desc: D) => string) => string,
+  needsParen: (self: D, parent: D | null) => boolean,
+) => {
+  const _show = (parent: D | null) => (self: D) => {
+    const text = show(self, _show(self))
+    return needsParen(self, parent) ? `(${text})` : text
+  }
+  return (input: T) => _show(null)(describe(input))
 }

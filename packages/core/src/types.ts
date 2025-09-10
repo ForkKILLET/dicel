@@ -1,4 +1,4 @@
-import { Func, Reverse } from './utils'
+import { describeToShow, Func, Reverse } from './utils'
 import { match } from 'ts-pattern'
 import { unreachable } from 'parsecond'
 import { pipe } from 'remeda'
@@ -7,11 +7,20 @@ export interface ConType<K extends string = string> {
   sub: 'con'
   id: string
 }
-export type ConTypeId = 'Num' | 'Bool' | '()' | '(,)' | 'Either'
-export const ConType = <K extends ConTypeId>(id: K): ConType<K> => ({
+export const ConType = <K extends string>(id: K): ConType<K> => ({
   sub: 'con',
   id,
 })
+
+export type DataCon = {
+  id: string
+  params: Type[]
+}
+
+export type Data = {
+  typeParams: string[]
+  cons: DataCon[]
+}
 
 export interface ApplyType<F extends Type = Type, A extends Type = Type> {
   sub: 'apply'
@@ -87,61 +96,82 @@ export type Type =
 
 export type TypeSub = Type['sub']
 
-export type TypeScheme = {
-  typeParams: Set<string>
-  type: Type
-}
-export namespace TypeScheme {
-  export const pure = (type: Type): TypeScheme => ({
-    typeParams: new Set,
-    type,
+export const uncurryApplyType = (type: ApplyType): Type[] => type.func.sub === 'apply'
+  ? [...uncurryApplyType(type.func), type.arg]
+  : [type.func, type.arg]
+
+export const uncurryFuncType = (type: FuncType): Type[] => type.ret.sub === 'func'
+  ? [type.param, ...uncurryFuncType(type.ret)]
+  : [type.param, type.ret]
+
+export type TypeDesc =
+  | { sub: 'con', id: string }
+  | { sub: 'var', id: string }
+  | { sub: 'apply', args: TypeDesc[] }
+  | { sub: 'tuple', args: TypeDesc[] }
+  | { sub: 'func', args: TypeDesc[] }
+
+export type TypeDescSub = TypeDesc['sub']
+
+export const typeNeedsParen = (self: TypeDesc, parent: TypeDesc | null): boolean => parent !== null && (
+  self.sub === 'func' && parent.sub === 'func' ||
+  self.sub === 'func' && parent.sub === 'apply' ||
+  self.sub === 'apply' && parent.sub === 'apply'
+)
+
+export const describeType = (type: Type): TypeDesc => match<Type, TypeDesc>(type)
+  .with({ sub: 'var' }, type => type)
+  .with({ sub: 'con' }, type => {
+    if (type.id === '') return { sub: 'tuple', args: [] }
+    return type
   })
-
-  export const map = (transform: (typeScheme: TypeScheme) => Type) =>
-    (typeScheme: TypeScheme) => pipe(typeScheme, ({ typeParams }): TypeScheme => ({
-      typeParams,
-      type: transform(typeScheme),
-    }))
-}
-
-export type TypeDict = Record<string, Type>
-export type TypeSchemeDict = Record<string, TypeScheme>
-
-export const showFuncType = (type: FuncType): string =>
-  `${showTypeParen(type.param.sub === 'func')(type.param)} -> ${showType(type.ret)}`
-
-export const showType = (type: Type): string => match(type)
-  .with({ sub: 'con' }, ({ id }) => id)
-  .with({ sub: 'func' }, type => showFuncType(type))
-  .with({ sub: 'var' }, ({ id }) => id)
-  .with({ sub: 'apply' }, ({ func, arg }) =>
-    `${showTypeParen(func.sub === 'func')(func)} ${showTypeParen(arg.sub !== 'con')(arg)}`
-  )
+  .with({ sub: 'func' }, type => ({
+    sub: 'func',
+    args: uncurryFuncType(type).map(describeType),
+  }))
+  .with({ sub: 'apply' }, type => {
+    const types = uncurryApplyType(type)
+    const [func, ...args] = types
+    if (func.sub === 'con' && func.id === ',')
+      return { sub: 'tuple', args: args.map(describeType) }
+    return { sub: 'apply', args: types.map(describeType) }
+  })
   .exhaustive()
 
-export const showTypeScheme = ({ type, typeParams }: TypeScheme): string =>
-  `${typeParams.size ? `forall ${[...typeParams].join(' ')}. ` : ''}${showType(type)}`
+export namespace Type {
+  export const is = (type: Type, subs: TypeSub[]): boolean => subs.includes(type.sub)
 
-export const showTypeParen = (pred: boolean) => (type: Type): string => {
-  const typeStr = showType(type)
-  return pred ? `(${typeStr})` : typeStr
+  export function assert<S extends TypeSub>(type: Type, sub: S): asserts type is Type & { sub: S } {
+    if (type.sub !== sub) throw new TypeError(`Expected type of sub ${sub}, got ${type.sub}.`)
+  }
+
+  export const show = describeToShow(
+    describeType,
+    (desc, show) => match<TypeDesc, string>(desc)
+      .with({ sub: 'con' }, { sub: 'var' }, type => type.id)
+      .with({ sub: 'func' }, ({ args }) => args.map(show).join(' -> '))
+      .with({ sub: 'apply' }, ({ args }) => `${args.map(show).join(' ')}`)
+      .with({ sub: 'tuple' }, ({ args }) => `(${args.map(show).join(', ')})`)
+      .exhaustive(),
+    typeNeedsParen,
+  )
 }
 
 export type TypePair<T extends Type = Type, U extends Type = Type> = [T, U]
 export const TypePair = <T extends Type, U extends Type>(lhs: T, rhs: U): TypePair<T, U> => [lhs, rhs]
-export type HomoTypePair<T extends Type = Type> = TypePair<T, T>
+export type HomoPair<T extends Type = Type> = TypePair<T, T>
 
-export const isHomoPair = (pair: TypePair): pair is HomoTypePair => pair[0].sub === pair[1].sub
+export const isHomoPair = (pair: TypePair): pair is HomoPair => pair[0].sub === pair[1].sub
 
-export type HomoTypePairMatcher<I extends Type, O, S extends TypeSub = TypeSub> = {
+export type HomoPairMatcher<I extends Type, O, S extends TypeSub = TypeSub> = {
   sub: <So extends S>(
-    this: HomoTypePairMatcher<I, O, S>,
+    this: HomoPairMatcher<I, O, S>,
     sub: So,
-    fn: (pair: HomoTypePair<I & { sub: So }>) => O
-  ) => HomoTypePairMatcher<I, O, Exclude<S, So>>
+    fn: (pair: HomoPair<I & { sub: So }>) => O
+  ) => HomoPairMatcher<I, O, Exclude<S, So>>
   exhaustive: [S] extends [never] ? () => O : never
 }
-export const matchHomoPair = <I extends Type, O>(pair: HomoTypePair<I>) => {
+export const matchHomoPair = <I extends Type, O>(pair: HomoPair<I>) => {
   let result: any = null
   const matcher = {
     sub(sub: TypeSub, fn: (pair: TypePair) => any) {
@@ -152,6 +182,30 @@ export const matchHomoPair = <I extends Type, O>(pair: HomoTypePair<I>) => {
       if (result === null) throw unreachable()
       return result
     }
-  } as HomoTypePairMatcher<I, O, Type['sub']>
+  } as HomoPairMatcher<I, O, TypeSub>
   return matcher
 }
+
+export type TypeScheme = {
+  typeParamSet: Set<string>
+  type: Type
+}
+export namespace TypeScheme {
+  export const pure = (type: Type): TypeScheme => ({
+    typeParamSet: new Set,
+    type,
+  })
+
+  export const map = (transform: (typeScheme: TypeScheme) => Type) =>
+    (typeScheme: TypeScheme) => pipe(typeScheme, ({ typeParamSet }): TypeScheme => ({
+      typeParamSet,
+      type: transform(typeScheme),
+    }))
+
+  export const show = ({ type, typeParamSet }: TypeScheme): string =>
+    `${typeParamSet.size ? `forall ${[...typeParamSet].join(' ')}. ` : ''}${Type.show(type)}`
+}
+
+export type TypeDict = Record<string, Type>
+export type TypeSchemeDict = Record<string, TypeScheme>
+

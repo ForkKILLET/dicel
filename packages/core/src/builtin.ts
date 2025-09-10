@@ -1,10 +1,9 @@
-import { mapValues } from 'remeda'
-import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, Type, ApplyTypeCurried } from './types'
-import { Ops } from './parse'
-import { BoolValue, ConValue, ErrValue, FuncValue, FuncValue2, FuncValueJ, FuncValueJ2, MVJ, Value } from './values'
+import { entries, flat, fromEntries, map, mapValues, pipe } from 'remeda'
+import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, Type, ApplyTypeCurried, Data } from './types'
+import { ConValue, ErrValue, FuncValue, FuncValue2, FuncValueJ, FuncValueJ2, FuncValueN, Value } from './values'
 import { Dice } from './execute'
 import { generalize } from './algorithmW'
-import { Func } from './utils'
+import { Func, Endo } from './utils'
 
 export interface TypedBuiltin {
   type: Type
@@ -15,7 +14,7 @@ export const TypedBuiltin = <T extends Type>(type: T, value: Value): TypedBuilti
   value,
 })
 
-export const builtinOps: Record<Ops, TypedBuiltin> = {
+export const builtinOps: Record<string, TypedBuiltin> = {
   '||': TypedBuiltin(
     FuncTypeCurried(ConType('Bool'), ConType('Bool'), ConType('Bool')),
     FuncValueJ2((lhs: boolean, rhs: boolean) => lhs || rhs),
@@ -70,36 +69,18 @@ export const builtinOps: Record<Ops, TypedBuiltin> = {
   ),
   '.': TypedBuiltin(
     FuncTypeCurried(FuncType(VarType('b'), VarType('c')), FuncType(VarType('a'), VarType('b')), FuncType(VarType('a'), VarType('c'))),
-    FuncValueJ2<Func, Func, Func>(<a, b, c>(bc: (arg: b) => c, ab: (arg: a) => b): ((arg: a) => c) => (a: a) => bc(ab(a))),
+    FuncValueJ2((bc: Endo<Value>, ab: Endo<Value>): Endo<Value> => (a: Value) => bc(ab(a))),
   ),
   '$': TypedBuiltin(
     FuncTypeCurried(FuncType(VarType('a'), VarType('b')), VarType('a'), VarType('b')),
-    FuncValueJ2<Func, MVJ, MVJ>(<a, b>(ab: (arg: a) => b, a: a): b => ab(a)),
+    FuncValue2((ab, a) => Value.coerce(ab, 'func').val(a)),
   ),
 }
 
-export const builtinVars: Record<string, TypedBuiltin> = {
-  True: TypedBuiltin(
-    ConType('Bool'),
-    BoolValue(true),
-  ),
-  False: TypedBuiltin(
-    ConType('Bool'),
-    BoolValue(false),
-  ),
-
-  Left: TypedBuiltin(
-    FuncType(VarType('a'), ApplyTypeCurried(ConType('Either'), VarType('a'), VarType('b'))),
-    FuncValue(<a extends Value>(a: a) => ConValue('Left', [a])),
-  ),
-  Right: TypedBuiltin(
-    FuncType(VarType('b'), ApplyTypeCurried(ConType('Either'), VarType('a'), VarType('b'))),
-    FuncValue(<b extends Value>(b: b) => ConValue('Right', [b])),
-  ),
-
+export const builtinFuncs: Record<string, TypedBuiltin> = {
   undefined: TypedBuiltin(
     VarType('a'),
-    ErrValue('undefined'),
+    ErrValue('Undefined'),
   ),
 
   id: TypedBuiltin(
@@ -130,10 +111,56 @@ export const builtinVars: Record<string, TypedBuiltin> = {
   ),
 }
 
-const generalizeBuiltin = (dict: Record<string, TypedBuiltin>): TypeSchemeDict =>
-  mapValues(dict, builtin => generalize(builtin.type))
-
-export const builtinEnv: TypeSchemeDict = {
-  ...generalizeBuiltin(builtinVars),
-  ...generalizeBuiltin(builtinOps),
+export const builtinData: Record<string, Data> = {
+  Either: {
+    typeParams: ['a', 'b'],
+    cons: [
+      { id: 'Left', params: [VarType('a')] },
+      { id: 'Right', params: [VarType('b')] },
+    ]
+  },
+  Bool: {
+    typeParams: [],
+    cons: [
+      { id: 'True', params: [] },
+      { id: 'False', params: [] },
+    ]
+  },
+  '': {
+    typeParams: [],
+    cons: [
+      { id: '', params: [] }
+    ]
+  },
+  ',': {
+    typeParams: ['a', 'b'],
+    cons: [
+      { id: ',', params: [VarType('a'), VarType('b')] }
+    ]
+  },
 }
+
+export const builtinDataCons: Record<string, TypedBuiltin> = pipe(
+  builtinData,
+  entries(),
+  map(([id, { cons, typeParams }]) =>
+    cons.map<[string, TypedBuiltin]>(({ id: conId, params }) => [
+      conId,
+      TypedBuiltin(
+        FuncTypeCurried(...params, ApplyTypeCurried(ConType(id), ...typeParams.map(VarType))),
+        FuncValueN(params.length)((...args: Value[]) => ConValue(conId, args)),
+      )
+    ])
+  ),
+  flat(),
+  fromEntries(),
+)
+
+export const builtinVals = {
+  ...builtinOps,
+  ...builtinFuncs,
+  ...builtinDataCons,
+}
+
+export const builtinEnv: TypeSchemeDict = 
+  mapValues(builtinVals, builtin => generalize(builtin.type))

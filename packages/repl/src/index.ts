@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline/promises'
 import { inspect } from 'node:util'
 
-import { parse, explain, Locale, execute, Dice, check, showTypeScheme, showValue } from '@dicel/core'
+import { parse, execute, check, Expr, TypeScheme, Value } from '@dicel/core'
 
 export const startRepl = () => {
   const rl = createInterface({
@@ -10,7 +10,6 @@ export const startRepl = () => {
     prompt: 'dicel> ',
   })
 
-  const locale: Locale = process.env.DICEL_LOCALE as Locale || 'dicel'
 
   const processLine = (line: string) => {
     const parseRes = parse(line)
@@ -22,8 +21,7 @@ export const startRepl = () => {
     const expr = parseRes.val.val
 
     if (process.env.DEBUG) console.log('AST:', expr)
-    const explanation = explain(expr, locale)
-    console.log('Explain: %s', explanation)
+    console.log('Expr: %s', Expr.show(expr))
 
     const checkOutput = check(expr)
     if (checkOutput.isErr) {
@@ -32,7 +30,7 @@ export const startRepl = () => {
     }
 
     const { typeScheme } = checkOutput.val
-    console.log('Type: %s', showTypeScheme(typeScheme))
+    console.log('Type: %s', TypeScheme.show(typeScheme))
 
     const result = execute(expr)
     if (result.isErr) {
@@ -40,7 +38,7 @@ export const startRepl = () => {
       return
     }
     const { val } = result
-    console.log('Value:', showValue(val))
+    console.log('Value:', Value.show(val))
     if (process.env.DEBUG) console.log('Raw Value:', inspect(val, { depth: null }))
   }
 
