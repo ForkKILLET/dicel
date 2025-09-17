@@ -23,12 +23,12 @@
   "devDependencies": {
     "@rslib/core": "^0.11.0",
     "@types/node": "^22.16.5",
-    "typescript": "^5.8.3",
+    "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "fk-result": "^0.2.0",
-    "parsecond": "^0.8.1",
+    "fk-result": "^0.3.0",
+    "parsecond": "^0.9.0",
     "remeda": "^2.30.0",
     "ts-pattern": "^5.8.0",
     "typescript-result": "^3.5.1"

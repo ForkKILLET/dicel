@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline/promises'
 import { inspect } from 'node:util'
 
-import { parse, execute, check, TypeScheme, Value, toInternal, Node } from '@dicel/core'
+import { parseExpr, execute, check, TypeScheme, Value, toInternal, Node } from '@dicel/core'
 
 export const startRepl = () => {
   const rl = createInterface({
@@ -12,7 +12,7 @@ export const startRepl = () => {
 
 
   const processLine = (line: string) => {
-    const parseRes = parse(line)
+    const parseRes = parseExpr(line)
     if (parseRes.isErr) {
       console.log(`Parse Error: %o`, parseRes.err)
       return

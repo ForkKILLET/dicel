@@ -1,9 +1,9 @@
 import { match } from 'ts-pattern'
 import { keys, map, mapValues, pipe, range, values, zip } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
-import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, ApplyType, ApplyTypeCurried, uncurryFuncType, FuncTypeCurried } from './types'
+import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, ApplyType, FuncTypeCurried } from './types'
 import { Binding, ConPattern, ExprInt, Node, Pattern } from './parse'
-import { the, unsnoc } from './utils'
+import { the } from './utils'
 
 export type TypeSubst = TypeDict
 export namespace TypeSubst {
@@ -71,7 +71,6 @@ export type TypeSource =
   | { type: 'elim.Func.ret', from: TypeSourced }
   | { type: 'elim.Apply.func', from: TypeSourced }
   | { type: 'elim.Apply.arg', from: TypeSourced }
-  | { type: 'pattern.Con.arg', pattern: ConPattern, index: number }
 
 export type TypeSourced<T extends Type = Type> = T & { source: TypeSource }
 export namespace TypeSourced {
@@ -482,37 +481,37 @@ export class Infer {
           })
         )
       ))
-      .with({ type: 'case' }, ({ subject, branches }) =>
-        this.infer(subject, env)
-          .bind(({ type: subjectType, subst: subjectSubst }) => {
-            const envS = TypeSubst.applySchemeDict(subjectSubst)(env)
-            const branchVar = TypeSourced.inferCase(this.tvs.fresh(), expr)
-            return Result.fold(
-              branches,
-              the<{ subst: TypeSubst, type: TypeSourced }>({ subst: subjectSubst, type: branchVar }),
-              ({ type: caseType, subst: caseSubst }, branch) => this
-                .inferPattern(branch.pattern, envS)
-                .mapErr(InferPattern.wrapErr)
-                .bind(({ env: envH, type: patternType }) =>
-                  unify(TypeSourced.appliedBy(caseSubst)(subjectType), patternType)
-                    .mapErr(Unify.wrapErr)
-                    .bind(subjectSubstU => {
-                      const caseSubstC = TypeSubst.compose([subjectSubstU, caseSubst])
-                      return this
-                        .infer(branch.body, TypeSubst.applySchemeDict(caseSubstC)({ ...envS, ...envH }))
-                        .bind(({ type: branchType, subst: branchSubst }) => {
-                          const branchSubstC = TypeSubst.compose([branchSubst, caseSubstC])
-                          return unify(TypeSourced.appliedBy(branchSubstC)(caseType), branchType)
-                            .mapErr(Unify.wrapErr)
-                            .map(branchSubstU => ({
-                              type: TypeSourced.appliedBy(branchSubstU)(branchType),
-                              subst: TypeSubst.compose([branchSubstU, branchSubstC]),
-                            }))
-                        })
-                    })
-                )
-            )
-          })
+      .with({ type: 'case' }, ({ subject, branches }) => this
+        .infer(subject, env)
+        .bind(({ type: subjectType, subst: subjectSubst }) => {
+          const envS = TypeSubst.applySchemeDict(subjectSubst)(env)
+          const branchVar = TypeSourced.inferCase(this.tvs.fresh(), expr)
+          return Result.fold(
+            branches,
+            the<{ subst: TypeSubst, type: TypeSourced }>({ subst: subjectSubst, type: branchVar }),
+            ({ type: caseType, subst: caseSubst }, branch) => this
+              .inferPattern(branch.pattern, envS)
+              .mapErr(InferPattern.wrapErr)
+              .bind(({ env: envH, type: patternType }) =>
+                unify(TypeSourced.appliedBy(caseSubst)(subjectType), patternType)
+                  .mapErr(Unify.wrapErr)
+                  .bind(subjectSubstU => {
+                    const caseSubstC = TypeSubst.compose([subjectSubstU, caseSubst])
+                    return this
+                      .infer(branch.body, TypeSubst.applySchemeDict(caseSubstC)({ ...envS, ...envH }))
+                      .bind(({ type: branchType, subst: branchSubst }) => {
+                        const branchSubstC = TypeSubst.compose([branchSubst, caseSubstC])
+                        return unify(TypeSourced.appliedBy(branchSubstC)(caseType), branchType)
+                          .mapErr(Unify.wrapErr)
+                          .map(branchSubstU => ({
+                            type: TypeSourced.appliedBy(branchSubstU)(branchType),
+                            subst: TypeSubst.compose([branchSubstU, branchSubstC]),
+                          }))
+                      })
+                  })
+              )
+          )
+        })
       )
       .with({ type: 'cond' }, ({ cond, yes, no }) =>
         this.infer(cond, env)
@@ -523,31 +522,31 @@ export class Infer {
                 const condSubstC = TypeSubst.compose([condSubstU, condSubst])
                 const envS = TypeSubst.applySchemeDict(condSubstC)(env)
                 return this.infer(yes, envS)
-                  .bind(({ type: yesType, subst: yesSubst }) =>
-                    this.infer(no, TypeSubst.applySchemeDict(yesSubst)(envS))
-                      .bind(({ type: noType, subst: noSubst }) =>
-                        unify(yesType, noType)
-                          .mapErr(Unify.wrapErr)
-                          .map<Infer.Ok>(branchSubst => ({
-                            type: TypeSourced.appliedBy(branchSubst)(noType),
-                            subst: TypeSubst.compose([branchSubst, noSubst, yesSubst, condSubstC]),
-                          }))
-                      )
+                  .bind(({ type: yesType, subst: yesSubst }) => this
+                    .infer(no, TypeSubst.applySchemeDict(yesSubst)(envS))
+                    .bind(({ type: noType, subst: noSubst }) =>
+                      unify(yesType, noType)
+                        .mapErr(Unify.wrapErr)
+                        .map<Infer.Ok>(branchSubst => ({
+                          type: TypeSourced.appliedBy(branchSubst)(noType),
+                          subst: TypeSubst.compose([branchSubst, noSubst, yesSubst, condSubstC]),
+                        }))
+                    )
                   )
               })
           )
       )
-      .with({ type: 'ann' }, ({ expr, ann: { val: annType } }) =>
-        this.infer(expr, env)
-          .bind(({ type: exprType, subst: exprSubst }) => {
-            const annTypeA = TypeSourced.actualFunc(annType, expr)
-            return unify(exprType, annTypeA)
-              .mapErr(Unify.wrapErr)
-              .map<Infer.Ok>(substU => ({
-                type: TypeSourced.appliedBy(substU)(annTypeA),
-                subst: TypeSubst.compose([substU, exprSubst]),
-              }))
-          })
+      .with({ type: 'ann' }, ({ expr, ann: { val: annType } }) => this
+        .infer(expr, env)
+        .bind(({ type: exprType, subst: exprSubst }) => {
+          const annTypeA = TypeSourced.actualFunc(annType, expr)
+          return unify(exprType, annTypeA)
+            .mapErr(Unify.wrapErr)
+            .map<Infer.Ok>(substU => ({
+              type: TypeSourced.appliedBy(substU)(annTypeA),
+              subst: TypeSubst.compose([substU, exprSubst]),
+            }))
+        })
       )
       .otherwise(() => Err({ type: 'Unreachable' }))
   }
