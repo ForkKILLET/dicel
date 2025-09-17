@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { typeNeedsParen, type TypeDesc } from '@dicel/core'
+import { Type, type TypeDesc } from '@dicel/core'
 import { computed } from 'vue'
 
 const props = defineProps<{
@@ -7,7 +7,7 @@ const props = defineProps<{
   parent: TypeDesc | null
 }>()
 
-const paren = computed(() => typeNeedsParen(props.type, props.parent))
+const paren = computed(() => Type.needsParen(props.type, props.parent))
 </script>
 
 <template>

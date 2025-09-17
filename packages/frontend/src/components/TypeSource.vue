@@ -31,4 +31,13 @@ defineProps<{
     the inferred value type of expression <NodeV :node="source.valExpr" />
     in let expression <NodeV :node="source.letExpr" />
   </template>
+  <template v-else-if="source.type === 'actual.Pattern'">
+    pattern <NodeV :node="source.pattern" />
+  </template>
+  <template v-else-if="source.type === 'elim.Apply.arg'">
+    the argument of <TypeSource :source="source.from.source" />
+  </template>
+  <template v-else-if="source.type === 'elim.Apply.func'">
+    the function of <TypeSource :source="source.from.source" />
+  </template>
 </template>

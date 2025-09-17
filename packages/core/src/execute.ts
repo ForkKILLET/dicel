@@ -1,34 +1,21 @@
-import { mapValues } from 'remeda'
+import { fromEntries, map, mapValues, pipe } from 'remeda'
 import { Result } from 'fk-result'
 import { builtinFuncs, builtinOps, builtinDataCons } from './builtin'
-import { Expr } from './parse'
+import { Mod, ExprInt, Pattern, Binding } from './parse'
 import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
+import { collectPatternVars } from './infer'
 
 export type Ref = { value: Value }
-export type Scope = Record<string, Ref>
-
-export type RuntimeEnv = {
-  scope: Scope
-  parent: RuntimeEnv | null
-}
+export type RuntimeEnv = Record<string, Ref>
 
 export namespace RuntimeEnv {
-  export const root = (): RuntimeEnv => ({
-    scope: mapValues(
-      { ...builtinFuncs, ...builtinOps, ...builtinDataCons },
-      (builtin): Ref => ({ value: builtin.value })
-    ),
-    parent: null,
-  })
-
-  export const extend = (parent: RuntimeEnv, scope: Scope): RuntimeEnv => ({
-    scope,
-    parent,
-  })
+  export const global = (): RuntimeEnv =>  mapValues(
+    { ...builtinFuncs, ...builtinOps, ...builtinDataCons },
+    (builtin): Ref => ({ value: builtin.value })
+  )
 
   export const resolve = (id: string, env: RuntimeEnv): Value => {
-    if (id in env.scope) return env.scope[id].value
-    if (env.parent) return resolve(id, env.parent)
+    if (id in env) return env[id].value
     throw new Error(`Undefined variable '${id}' (unreachable)`)
   }
 }
@@ -51,7 +38,56 @@ export namespace Dice {
   }
 }
 
-const _execute = (expr: Expr, env: RuntimeEnv): Value => {
+
+const _executePattern = (pattern: Pattern, subject: Value): RuntimeEnv | null => {
+  switch (pattern.sub) {
+    case 'wildcard':
+      return {}
+    case 'num':
+      Value.assert(subject, 'num')
+      if (subject.val !== pattern.val) return null
+      return {}
+    case 'unit':
+      Value.assert(subject, 'unit')
+      return {}
+    case 'var':
+      return {
+        [pattern.var.id]: { value: subject }
+      }
+    case 'con':
+      Value.assert(subject, 'con')
+      if (pattern.con.id !== subject.id) return null
+      return pattern.args.reduce<RuntimeEnv | null>(
+        (env, arg, index) => {
+          if (! env) return null
+          const argEnv = _executePattern(arg, subject.args[index])
+          if (! argEnv) return null
+          return { ...env, ...argEnv }
+        },
+        {}
+      )
+  }
+}
+
+const _executeBindings = (bindings: Binding<{}, '@exprInt'>[], env: RuntimeEnv) => {
+  const patternVars = bindings.flatMap(({ lhs }) => collectPatternVars(lhs))
+  const envI = {
+    ...env,
+    ...pipe(
+      patternVars,
+      map((id): [string, Ref] => [
+        id, { value: ErrValue(`Uninitialized variable '${id}'`) }
+      ]),
+      fromEntries(),
+    )
+  }
+  bindings.forEach(({ lhs, rhs }) => {
+    Object.assign(envI, _executePattern(lhs, _execute(rhs, envI)))
+  })
+  return envI
+}
+
+const _execute = (expr: ExprInt, env: RuntimeEnv): Value => {
   const _eval = (): Value => {
     switch (expr.type) {
       case 'num':
@@ -66,11 +102,17 @@ const _execute = (expr: Expr, env: RuntimeEnv): Value => {
       case 'var':
         return RuntimeEnv.resolve(expr.id, env)
       case 'let': {
-        const { lhs: { id }, rhs } = expr.binding
-        const ref: Ref = { value: ErrValue(`Uninitialized variable '${id}'`) }
-        const envI = RuntimeEnv.extend(env, { [id]: ref })
-        ref.value = _execute(rhs, envI)
+        const envI = _executeBindings(expr.bindings, env)
         return _execute(expr.body, envI)
+      }
+      case 'case': {
+        const subject = _execute(expr.subject, env)
+        for (const branch of expr.branches) {
+          const branchEnv = _executePattern(branch.pattern, subject)
+          if (! branchEnv) continue
+          return _execute(branch.body, { ...env, ...branchEnv })
+        }
+        throw new Error('Non-exhaustive patterns in case.')
       }
       case 'apply': {
         const func = _execute(expr.func, env)
@@ -78,9 +120,13 @@ const _execute = (expr: Expr, env: RuntimeEnv): Value => {
         return func.val(_execute(expr.arg, env))
       }
       case 'lambda':
-        return FuncValue((arg: Value) => _execute(expr.body, RuntimeEnv.extend(env, {
-          [expr.param.id]: { value: arg }
-        })))
+        return FuncValue((arg: Value) => {
+          const paramEnv = _executePattern(expr.param, arg)
+          return _execute(expr.body, {
+            ...env,
+            ...paramEnv,
+          })
+        })
       case 'ann':
         return _execute(expr.expr, env)
       default:
@@ -92,6 +138,8 @@ const _execute = (expr: Expr, env: RuntimeEnv): Value => {
   return val
 }
 
-export const execute = (expr: Expr, env: RuntimeEnv = RuntimeEnv.root()): Result<Value, Error> =>
+export const execute = (expr: ExprInt, env: RuntimeEnv = RuntimeEnv.global()): Result<Value, Error> =>
   Result.wrap(() => _execute(expr, env))
 
+export const executeMod = (mod: Mod<{}, '@exprInt'>, env: RuntimeEnv = RuntimeEnv.global()): Result<RuntimeEnv, Error> =>
+  Result.wrap(() => _executeBindings(mod.defs.map(def => def.binding), env))

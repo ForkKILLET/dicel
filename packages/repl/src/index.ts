@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline/promises'
 import { inspect } from 'node:util'
 
-import { parse, execute, check, Expr, TypeScheme, Value } from '@dicel/core'
+import { parse, execute, check, TypeScheme, Value, toInternal, Node } from '@dicel/core'
 
 export const startRepl = () => {
   const rl = createInterface({
@@ -21,9 +21,11 @@ export const startRepl = () => {
     const expr = parseRes.val.val
 
     if (process.env.DEBUG) console.log('AST:', expr)
-    console.log('Expr: %s', Expr.show(expr))
+    console.log('Expr: %s', Node.show(expr))
 
-    const checkOutput = check(expr)
+    const exprInt = toInternal(expr)
+
+    const checkOutput = check(exprInt)
     if (checkOutput.isErr) {
       console.log('Check Error:', checkOutput.err)
       return
@@ -32,7 +34,7 @@ export const startRepl = () => {
     const { typeScheme } = checkOutput.val
     console.log('Type: %s', TypeScheme.show(typeScheme))
 
-    const result = execute(expr)
+    const result = execute(exprInt)
     if (result.isErr) {
       console.log('Runtime Error:', result.err)
       return

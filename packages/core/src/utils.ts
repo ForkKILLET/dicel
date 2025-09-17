@@ -1,3 +1,5 @@
+import { entries, filter, fromEntries, pipe } from 'remeda'
+
 export type Func = (...args: any[]) => any
 export type Cmp<T> = (a: T, b: T) => number
 
@@ -6,6 +8,21 @@ export type Endo<T> = (x: T) => T
 export type Reverse<T extends any[]> = T extends [infer Head, ...infer Tail]
   ? [...Reverse<Tail>, Head]
   : []
+
+export const the = <T>(x: T): T => x
+
+export const unsnoc = <T>(arr: T[]): [T[], T] => [
+  arr.slice(0, -1),
+  arr[arr.length - 1],
+]
+
+export const filterKeys = <T>(pred: (key: string) => boolean) =>
+  (object: Record<string, T>): Record<string, T> => pipe(
+    object,
+    entries(),
+    filter(([key]) => pred(key)),
+    fromEntries(),
+  )
 
 export type Signal<T> = [T, (val: T) => void]
 export const setter = <O extends {}, P extends keyof O>(object: O, prop: P) => (val: O[P]) => { object[prop] = val }

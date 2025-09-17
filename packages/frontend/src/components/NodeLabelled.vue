@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { NodeEx } from '@dicel/core'
+import type { Node, ExRange, ExId } from '@dicel/core'
 import NodeV from './NodeV.vue'
 
 defineProps<{
-  node: NodeEx | null
+  node: Node<ExRange & ExId> | null
 }>()
 </script>
 

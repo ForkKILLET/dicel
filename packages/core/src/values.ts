@@ -38,8 +38,7 @@ export type Value =
 
 export type ValueTag = Value['tag']
 
-export type MappableValueTag = 'num' | 'bool' | 'unit' | 'func'
-export type MappableValue = Extract<Value, { tag: MappableValueTag }>
+export type MappableValue = NumValue | BoolValue | UnitValue | FuncValue
 export type MappableValueJ = number | boolean | null | Func
 export type MVJ = MappableValueJ
 
@@ -52,6 +51,25 @@ export const FuncValueJ2 = <T1 extends MVJ, T2 extends MVJ, T3 extends MVJ>(
 export const FuncValueJ3 = <T1 extends MVJ, T2 extends MVJ, T3 extends MVJ, T4 extends MVJ>(
   func: (a1: T1, a2: T2, a3: T3) => T4
 ) => FuncValue(v1 => FuncValue(v2 => FuncValue(v3 => Value.map([v1, v2, v3], func))))
+
+export type ValueDesc =
+  | { tag: 'num', val: number }
+  | { tag: 'unit' }
+  | { tag: 'func', val: Endo<Value> }
+  | { tag: 'list', vals: ValueDesc[] }
+  | { tag: 'tuple', vals: ValueDesc[] }
+  | { tag: 'con', id: string, args: ValueDesc[] }
+  | { tag: 'err', msg: string }
+
+export const uncurryListValue = (val: Value): Value[] => {
+  Value.assert(val, 'con')
+  if (val.id === '[]') return []
+  if (val.id === '#') {
+    const [head, tail] = val.args
+    return [head, ...uncurryListValue(tail)]
+  }
+  throw new TypeError(`Expected constructor of List, got ${val.id}.`)
+}
 
 export namespace Value {
   export const is = <const Ts extends ValueTag[]>(val: Value, tags: Ts): val is Value & { tag: Ts[number] } =>
@@ -68,6 +86,7 @@ export namespace Value {
 
   export const unwrap = (value: MappableValue): MappableValueJ => match(value)
     .with({ tag: 'unit' }, () => null)
+    .with({ tag: 'con' }, value => value.id === 'True')
     .otherwise(({ val }) => val)
     
   export const map = <const Vs extends MappableValueJ[]>(
@@ -84,12 +103,31 @@ export namespace Value {
     return value
   }
 
-  export const needsParen = (self: Value, parent: Value | null): boolean => parent !== null && (
+  export const describe = (value: Value): ValueDesc => match<Value, ValueDesc>(value)
+    .with({ tag: 'num' }, { tag: 'unit' }, { tag: 'func' }, value => value)
+    .with({ tag: 'con' }, value => match<ConValue, ValueDesc>(value)
+      .with({ id: ',' }, ({ args }) => ({
+        tag: 'tuple',
+        vals: args.map(describe)
+      }))
+      .with({ id: '#' }, { id: '[]' }, value => ({
+        tag: 'list',
+        vals: uncurryListValue(value),
+      }))
+      .otherwise(({ id, args }) => ({
+        tag: 'con',
+        id,
+        args: args.map(describe),
+      }))
+    )
+    .run()
+
+  export const needsParen = (self: ValueDesc, parent: ValueDesc | null): boolean => parent !== null && (
     parent.tag === 'con' && self.tag === 'con' && self.args.length > 0
   )
 
-  export const show = describeToShow<Value, Value>(
-    identity(),
+  export const show = describeToShow<Value, ValueDesc>(
+    describe,
     (val, show) => match(val)
       .with({ tag: 'num' }, ({ val }) => String(val))
       .with({ tag: 'unit' }, () => '')
@@ -98,9 +136,11 @@ export namespace Value {
         .with(',', () => `(${args.map(show).join(', ')})`)
         .otherwise(() => [id, ...args.map(show)].join(' '))
       )
+      .with({ tag: 'list' }, ({ vals }) => `[${vals.map(show).join(', ')}]`)
+      .with({ tag: 'tuple' }, ({ vals }) => `(${vals.map(show).join(', ')})`)
       .with({ tag: 'err' }, () => `Err`)
       .exhaustive(),
-    needsParen
+    needsParen,
   )
 }
 

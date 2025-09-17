@@ -1,8 +1,8 @@
 import { entries, flat, fromEntries, map, mapValues, pipe } from 'remeda'
-import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, Type, ApplyTypeCurried, Data } from './types'
+import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, Type, ApplyTypeCurried, Data, ApplyType } from './types'
 import { ConValue, ErrValue, FuncValue, FuncValue2, FuncValueJ, FuncValueJ2, FuncValueN, Value } from './values'
 import { Dice } from './execute'
-import { generalize } from './algorithmW'
+import { generalize } from './infer'
 import { Func, Endo } from './utils'
 
 export interface TypedBuiltin {
@@ -97,6 +97,11 @@ export const builtinFuncs: Record<string, TypedBuiltin> = {
     FuncValueJ2(Dice.roll),
   ),
 
+  not: TypedBuiltin(
+    FuncType(ConType('Bool'), ConType('Bool')),
+    FuncValueJ((b: boolean) => ! b),
+  ),
+
   max: TypedBuiltin(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2(Math.max),
@@ -112,6 +117,13 @@ export const builtinFuncs: Record<string, TypedBuiltin> = {
 }
 
 export const builtinData: Record<string, Data> = {
+  Maybe: {
+    typeParams: ['a'],
+    cons: [
+      { id: 'Just', params: [VarType('a')] },
+      { id: 'Nothing', params: [] },
+    ]
+  },
   Either: {
     typeParams: ['a', 'b'],
     cons: [
@@ -124,6 +136,13 @@ export const builtinData: Record<string, Data> = {
     cons: [
       { id: 'True', params: [] },
       { id: 'False', params: [] },
+    ]
+  },
+  List: {
+    typeParams: ['a'],
+    cons: [
+      { id: '[]', params: [] },
+      { id: '#', params: [VarType('a'), ApplyTypeCurried(ConType('List'), VarType('a'))] },
     ]
   },
   '': {

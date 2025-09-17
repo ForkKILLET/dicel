@@ -1,6 +1,6 @@
 export * from './parse'
 export * from './types'
-export * from './algorithmW'
+export * from './infer'
 export * from './check'
 export * from './values'
 export * from './builtin'

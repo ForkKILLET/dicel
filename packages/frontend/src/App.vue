@@ -1,42 +1,56 @@
 <script setup lang="ts">
-import { computed, reactive, ref, useTemplateRef, watch } from 'vue'
-import { parse, check, execute, type Node, type ExRange, type ExId, type Check, type ExprEx, type NodeEx, Value, UnitValue, ErrValue, builtinData, Type, uncurryApplyType, TypeSubst } from '@dicel/core'
+import { capitalize, computed, reactive, ref, useTemplateRef, watch } from 'vue'
+import {
+  type Node, type ExRange, type ExId, type Check, Value,
+  UnitValue, ErrValue, builtinData, Type, uncurryApplyType, TypeSubst,
+  parseMod, toInternalMod,
+  type CheckMod, checkMod,
+  type Mod, executeMod, isSymbol,
+} from '@dicel/core'
 import type { ParseErr } from 'parsecond'
+import { zip } from 'remeda'
 import { Ok, type Result } from 'fk-result'
+
 import NodeV from './components/NodeV.vue'
 import ValueV from './components/ValueV.vue'
 import TypeSchemeV from './components/TypeScheme.vue'
 import CheckErr from './components/CheckErr.vue'
 import NodeLabelled from './components/NodeLabelled.vue'
+
 import type { Cmp } from './utils'
-import { zip } from 'remeda'
+import { Selection } from './utils/selectable'
 
 const input = ref(localStorage['input'] ?? '')
 watch(input, () => {
   localStorage['input'] = input.value
 })
-const parseResult = computed(() => parse(input.value))
+const parseResult = computed(() => parseMod(input.value)
+  .map(({ val }) => val)
+  .mapErr(err => err as ParseErr | null)
+)
+
+const toInternalResult = computed(() => parseResult.value.map(toInternalMod))
 
 namespace CheckPass {
-  export type Ok = Check.Ok & {
-    expr: ExprEx
+  export type Ok = CheckMod.Ok & {
+    mod: Mod<{}, '@exprInt'>
   }
   export type ParseErrWrapped = {
     type: 'Parse'
     err: ParseErr | null
   }
-  export type Err = Check.Err | ParseErrWrapped
+  export type Err = CheckMod.Err | ParseErrWrapped
   export type Res = Result<Ok, Err>
 }
-const checkResult = computed<CheckPass.Res>(() => parseResult.value
+const checkResult = computed<CheckPass.Res>(() => toInternalResult.value
   .mapErr(err => ({ type: 'Parse', err }))
-  .bind(({ val: expr }) => check(expr).map(ok => ({ ...ok, expr }))
+  .bind(mod => checkMod(mod, { isMain: true }).map(({ env }) => (console.log(env) ?? { env, mod }))
 ))
 
 const doExecute = (checkVal: CheckPass.Ok) => {
-  disTotal.value ++
-  const result = execute(checkVal.expr)
+  const result = executeMod(checkVal.mod).map(env => env['main'].value)
   executeResult.value = result
+  executeResults.value.push(result)
 
   const { label, value } = result.match(
     value => ({ label: Value.show(value), value }),
@@ -62,7 +76,8 @@ namespace ExecutePass {
 }
 const executeResult = ref<ExecutePass.Res>(Ok(UnitValue()))
 
-const disTotal = ref(0)
+const executeResults = ref<ExecutePass.Res[]>([])
+const disTotal = computed(() => executeResults.value.length)
 
 type DisBucket = {
   label: string
@@ -75,16 +90,16 @@ const disMax = ref(0)
 const disMeasureEl = useTemplateRef('disMeasure')
 const disChWidth = computed(() => disMeasureEl.value?.getBoundingClientRect().width ?? 0)
 const disChHeight = computed(() => disMeasureEl.value?.getBoundingClientRect().height ?? 0)
+const disGraphDir = ref<'vertical' | 'horizontal'>('horizontal')
+const disGraphDirNext = computed(() => disGraphDir.value === 'horizontal' ? 'vertical' : 'horizontal')
+
 const sortByCount = ref(true)
 const sortDir = ref(1)
 
 const makeCmp = (type: Type): Cmp<Value> => {
   if (type.sub !== 'con' && type.sub !== 'apply') return () => 0
   
-  const [con, ...args] = type.sub === 'con'
-    ? [type]
-    : uncurryApplyType(type)
-  Type.assert(con, 'con')
+  const [con, ...args] = uncurryApplyType(type)
 
   if (con.id === 'Num') return (a, b) => {
     Value.assert(a, 'num')
@@ -115,13 +130,12 @@ const makeCmp = (type: Type): Cmp<Value> => {
 }
 
 const cmpBase = computed<Cmp<DisBucket>>(() => {
-  console.log('cmpBase recompute')
   if (! checkResult.value.isOk) return () => 0
 
   if (sortByCount.value)
     return (a, b) => a.count - b.count
 
-  const { type } = checkResult.value.val.typeScheme
+  const { type } = checkResult.value.val.env['main']
 
   return (a, b) => makeCmp(type)(a.value, b.value)
 })
@@ -137,6 +151,7 @@ type DisBar = {
   height: number
 
   label: string
+  ratio: number
   prob: string
   count: number
 }
@@ -155,14 +170,15 @@ const disBars = computed<DisBar[]>(() => {
   const cases: DisBar[] = []
   let x = 0.5 * disChWidth.value
   for (const [label, { count }] of entries) {
-    const ratioToMax = count / disMax.value
+    const ratio = count / disMax.value
     const width = Math.max(5, label.length) * disChWidth.value
     cases.push({
       x,
-      y: 100 * (1 - ratioToMax),
+      y: 100 * (1 - ratio),
       width,
-      height: 100 * ratioToMax,
-      label: label,
+      height: 100 * ratio,
+      label,
+      ratio,
       prob: `${(count / disTotal.value * 100).toFixed(1)}%`,
       count,
     })
@@ -177,22 +193,18 @@ const disTotalWidth = computed(() => {
   const { x, width } = lastCase
   return x + width + 0.5 * disChWidth.value
 })
+const disCountWidth = computed(() => String(disMax.value).length * disChWidth.value)
+const disProbWidth = computed(() => '100.0%'.length * disChWidth.value)
+const disLabelWidth = computed(() => Math.max(...disBars.value.map(bar => bar.width)))
 
 watch(parseResult, result => result.tap(() => {
+  executeResults.value = []
   dis.clear()
   disMax.value = 0
-  disTotal.value = 0
 }))
 watch(checkResult, result => result.tap(doExecute), { immediate: true })
 
-export type Selection = {
-  node: NodeEx | null
-  fixedNode: NodeEx | null
-}
-const selection = reactive<Selection>({
-  node: null,
-  fixedNode: null,
-})
+const selection = reactive<Selection>(Selection())
 
 declare global {
   interface Window {
@@ -223,106 +235,155 @@ const inputEl = useTemplateRef('inputEl')
 <template>
   <div class="root">
     <main>
-      <div class="input-container section">
-        <textarea class="code" v-model="input" spellcheck="false" ref="inputEl"></textarea>
-      </div>
-
-      <div class="parse result section">
-        <div v-if="parseResult.isOk" class="parse ok">
-          Expr: <NodeV
-            :node="parseResult.val.val"
-            :selection="selection"
-            @mouseleave="selection.node = null"
-          />
-
-          <div>
-            Selected node:
-            <NodeLabelled :node="selection.node" />
-          </div>
-          <div>
-            Fixed node:
-            <NodeLabelled :node="selection.fixedNode" />
-          </div>
-        </div>
-        <div v-else class="parse err">
-          Parse Error:
-          <template v-if="parseResult.err === null">
-            Unknown error
-          </template>
-          <template v-else>
-            {{ parseResult.err.type }}
-          </template>
-        </div>
-      </div>
-
-      <div v-if="parseResult.isOk" class="check result section">
-        <div v-if="checkResult.isOk" class="check ok">
-          Type: <TypeSchemeV :type-scheme="checkResult.val.typeScheme" />
-        </div>
-        <div v-else-if="checkResult.err.type !== 'Parse'" class="check err">
-          Check Error:
-          <CheckErr :err="checkResult.err" />
-        </div>
-      </div>
-
-      <div v-if="checkResult.isOk" class="execute result">
-        <div class="section">
-          Result:
-          <button @click="doExecute(checkResult.val)">Re-run</button>
-          <button @click="doExecuteToMultiple(100)">Re-run to 100x</button>
-          <button @click="doExecuteToMultiple(1000)">Re-run to 1000x</button>
+      <div class="left">
+        <div class="input-container section">
+          <textarea class="code" v-model="input" spellcheck="false" ref="inputEl"></textarea>
         </div>
 
-        <div v-if="executeResult.isOk" class="execute ok section">
-          Value:
-          <ValueV :value="executeResult.val" />
-        </div>
-        <div v-else class="execute err section">
-          Execute Error:
-          <pre>{{ executeResult.err }}</pre>
-        </div>
+        <div class="parse result section">
+          <div v-if="parseResult.isOk" class="parse ok">
+            Expr: <NodeV
+              :node="parseResult.val"
+              :selection="selection"
+              @mouseleave="selection.node = null"
+            />
 
-        <div class="section">
-          <div>
-            Distribution (<span class="dis-total">{{ disTotal }}x</span>):
-            <button @click="sortByCount = ! sortByCount">Sort by {{ sortByCount ? 'label' : 'count' }}</button>
-            <button @click="sortDir = - sortDir">Sort {{ sortDir > 0 ? 'desc' : 'asc' }}</button>
-          </div>
-          <div class="dis-scroll">
-            <div class="dis-measure-container">
-              <span class="dis-measure" ref="disMeasure">x</span>
+            <div>
+              Selected node:
+              <NodeLabelled :node="selection.node" />
             </div>
-            <svg class="dis-graph" :width="10 + disTotalWidth" :height="140">
-              <g
-                v-for="{ x, y, width, height, label, count, prob } of disBars"
-                :key="label"
+            <div>
+              Fixed node:
+              <NodeLabelled :node="selection.fixedNode" />
+            </div>
+          </div>
+          <div v-else class="parse err">
+            Parse Error:
+            <template v-if="parseResult.err === null">
+              Unknown error
+            </template>
+            <template v-else>
+              {{ parseResult.err.type }}
+            </template>
+          </div>
+        </div>
+
+        <div v-if="parseResult.isOk" class="check result section">
+          <div v-if="checkResult.isOk" class="check ok">
+            Types:
+            <div v-for="typeScheme, id in checkResult.val.env" :key="id">
+              <span class="node-var">{{isSymbol(id) ? `(${id})` : id}}</span> :: <TypeSchemeV :type-scheme="typeScheme" />
+            </div>
+          </div>
+          <div v-else-if="checkResult.err.type !== 'Parse'" class="check err">
+            Check Error:
+            <CheckErr :err="checkResult.err" />
+          </div>
+        </div>
+      </div>
+
+      <div class="right">
+        <div v-if="checkResult.isOk" class="execute result">
+          <div class="section">
+            Result:
+            <button @click="doExecute(checkResult.val)">Re-run</button>
+            <button @click="doExecuteToMultiple(100)">Re-run to 100x</button>
+            <button @click="doExecuteToMultiple(1000)">Re-run to 1000x</button>
+          </div>
+
+          <div v-if="executeResult.isOk" class="execute ok section">
+            Value:
+            <ValueV :value="executeResult.val" />
+          </div>
+          <div v-else class="execute err section">
+            Execute Error:
+            <pre>{{ executeResult.err }}</pre>
+          </div>
+
+          <div class="dis section">
+            <div>
+              Distribution (<span class="dis-total">{{ disTotal }}x</span>):
+              <button @click="disGraphDir = disGraphDirNext">{{ capitalize(disGraphDirNext) }} view</button>
+              <button @click="sortByCount = ! sortByCount">Sort by {{ sortByCount ? 'label' : 'count' }}</button>
+              <button @click="sortDir = - sortDir">Sort {{ sortDir > 0 ? 'desc' : 'asc' }}</button>
+            </div>
+            <div class="dis-scroll">
+              <div class="dis-measure-container">
+                <span class="dis-measure" ref="disMeasure">x</span>
+              </div>
+              <svg
+                v-if="disGraphDir === 'horizontal'"
+                class="dis-graph horizontal"
+                :width="disTotalWidth + 10"
+                :height="140"
+              >
+                <g
+                  v-for="{ x, y, width, height, label, count, prob } of disBars"
+                  :key="label"
                   class="dis-bar"
                   :class="{ 'dis-bar-err': label === 'Error' }"
+                >
+                  <rect
+                    class="dis-bar-bar"
+                    :x="x + width / 2 - 15"
+                    :y="y"
+                    :width="30"
+                    :height="height"
+                  />
+                  <text
+                    class="dis-bar-val"
+                    :x="x + width / 2"
+                    :y="100 + disChHeight"
+                  >{{ label }}</text>
+                  <text
+                    class="dis-bar-count"
+                    :x="x + width / 2"
+                    :y="100 + disChHeight * 2"
+                  >{{ count }}</text>
+                  <text
+                    class="dis-bar-count"
+                    :x="x + width / 2"
+                    :y="100 + disChHeight * 3"
+                  >{{ prob }}</text>
+                </g>
+              </svg>
+              <svg
+                v-else-if="disGraphDir === 'vertical'"
+                class="dis-graph vertical"
+                :width="disCountWidth + disProbWidth + 200 + disLabelWidth + 20"
+                :height="dis.size * 15 + 10"
               >
-                <rect
-                  class="dis-bar-bar"
-                  :x="x + width / 2 - 15"
-                  :y="y"
-                  :width="30"
-                  :height="height"
-                />
-                <text
-                  class="dis-bar-val"
-                  :x="x + width / 2"
-                  :y="100 + disChHeight"
-                >{{ label }}</text>
-                <text
-                  class="dis-bar-count"
-                  :x="x + width / 2"
-                  :y="100 + disChHeight * 2"
-                >{{ count }}</text>
-                <text
-                  class="dis-bar-count"
-                  :x="x + width / 2"
-                  :y="100 + disChHeight * 3"
-                >{{ prob }}</text>
-              </g>
-            </svg>
+                <g
+                  v-for="{ label, count, prob, ratio }, i of disBars"
+                  :key="label"
+                  class="dis-bar"
+                  :class="{ 'dis-bar-err': label === 'Error' }"
+                >
+                  <text
+                    class="dis-bar-count"
+                    :x="0"
+                    :y="15 * i + 10"
+                  >{{ count }}</text>
+                  <text
+                    class="dis-bar-count"
+                    :x="disCountWidth + 5"
+                    :y="15 * i + 10"
+                  >{{ prob }}</text>
+                  <rect
+                    class="dis-bar-bar"
+                    :x="disCountWidth + disProbWidth + 10"
+                    :y="15 * i + 10 - 15 / 2"
+                    :width="ratio * 200"
+                    :height="15"
+                  />
+                  <text
+                    class="dis-bar-val"
+                    :x="disCountWidth + disProbWidth + 200 + 15"
+                    :y="15 * i + 10"
+                  >{{ label }}</text>
+                </g>
+              </svg>
+            </div>
           </div>
         </div>
       </div>
@@ -352,7 +413,12 @@ const inputEl = useTemplateRef('inputEl')
 }
 
 main {
+  display: flex;
   padding: 1em;
+}
+
+.left, .right {
+  flex-basis: 50%;
 }
 
 footer {
@@ -368,7 +434,7 @@ footer {
 
 textarea {
   box-sizing: border-box;
-  width: 50%;
+  width: 100%;
   min-height: 20vh;
   resize: vertical;
   outline: none;
@@ -423,17 +489,21 @@ pre {
 
 .dis-scroll {
   padding: 1em 0;
+  max-width: 45vw;
   overflow-x: auto;
   font-size: .9em;
 }
 
 .dis-bar-bar {
-  transition: y 0.2s, height 0.2s;
+  transition: x 0.2s, y 0.2s, height 0.2s;
   fill: lightblue;
 }
 
-.dis-bar-count, .dis-bar-val {
+.horizontal .dis-bar-count, .horizontal .dis-bar-val {
   text-anchor: middle;
+}
+.vertical .dis-bar-count, .vertical .dis-bar-val {
+  dominant-baseline: central;
 }
 
 .dis-bar-count {

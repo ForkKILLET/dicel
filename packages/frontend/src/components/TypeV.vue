@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { describeType, type Type } from '@dicel/core'
+import { Type } from '@dicel/core'
 import TypeDescV from './TypeDesc.vue'
 
 defineProps<{
@@ -8,5 +8,5 @@ defineProps<{
 </script>
 
 <template>
-  <TypeDescV :type="describeType(type)" :parent="null" />
+  <TypeDescV :type="Type.describe(type)" :parent="null" />
 </template>

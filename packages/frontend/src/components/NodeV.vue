@@ -1,97 +1,125 @@
 <script setup lang="ts">
-import type { ExId, Expr, ExprType, ExRange, Node } from '@dicel/core'
-import type { Selection } from '../App.vue'
+import { type ExId, type ExRange, isSymbol, Node } from '@dicel/core'
+
+import { computed, useTemplateRef } from 'vue'
+import { Selection, useSelectable } from '../utils/selectable'
+
 import TypeV from './TypeV.vue'
+import PatternV from './PatternV.vue'
 
 const props = withDefaults(defineProps<{
-  node: Node<ExRange & ExId> | Node,
+  node: Node<ExRange & ExId> | Node
   selection?: Selection
-  withParen?: boolean
+  parent?: Node<ExRange & ExId> | Node | null
 }>(), {
-  withParen: false,
-  selection: (): Selection => ({ node: null, fixedNode: null })
+  parent: null,
+  selection: Selection,
 })
 
-const is = (expr: Expr, types: ExprType[]): boolean => types.includes(expr.type)
+const root = useTemplateRef('root')
+const { classes } = useSelectable(root, props)
 
-const onMouseMove = () => {
-  if ('range' in props.node) props.selection.node = props.node
-}
-
-const onClick = () => {
-  if (! ('range' in props.node)) return
-  props.selection.fixedNode = props.selection.fixedNode?.astId === props.node.astId
-    ? null
-    : props.node
-}
+const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
 </script>
 
 <template>
   <span
-    class="expr"
-    :class="{
-      [node.type]: true,
-      selected: 'range' in node && selection.node?.astId === node.astId,
-      fixed: 'range' in node && selection.fixedNode?.astId === node.astId,
-    }"
-    @mousemove.stop="onMouseMove"
-    @click.stop="onClick"
+    class="node"
+    ref="root"
+    :class="classes"
   >
     <span v-if="withParen">(</span>
     <span v-if="node.type === 'num'">
-      <span class="expr-lit">{{ node.val }}</span>
+      <span class="node-lit">{{ node.val }}</span>
     </span>
-    <span v-if="node.type === 'unit'">
-      <span class="expr-con">()</span>
+    <span v-else-if="node.type === 'unit'">
+      <span class="node-con">()</span>
     </span>
     <span v-else-if="node.type === 'var'">
-      <span class="expr-var">{{ node.id }}</span>
+      <span :class="isSymbol(node.id) ? 'node-op' : 'node-var'">{{ node.id }}</span>
     </span>
     <span v-else-if="node.type === 'cond'">
-      <NodeV :node="node.cond" :selection="selection" />
-      <span class="expr-op expr-spaced">?</span>
-      <NodeV :node="node.yes" :selection="selection" />
-      <span class="expr-op expr-spaced">:</span>
-      <NodeV :node="node.no" :selection="selection" />
+      <NodeV :node="node.cond" :selection="selection" :parent="node" />
+      <span class="node-sym node-spaced">?</span>
+      <NodeV :node="node.yes" :selection="selection" :parent="node" />
+      <span class="node-sym node-spaced">:</span>
+      <NodeV :node="node.no" :selection="selection" :parent="node" />
     </span>
     <span v-else-if="node.type === 'let'">
-      <span class="expr-kw">let</span>
-      <NodeV :node="node.binding" :selection="selection" />
-      <div class="expr-i-2">
-        <span class="expr-kw expr-i-n1">in</span>
-        <NodeV :node="node.body" :selection="selection" />
+      <span class="node-kw">let</span>
+      <div v-for="binding, i of node.bindings" :key="i" class="node-block">
+        <NodeV :node="binding" :selection="selection" :parent="node" />
+      </div>
+      <div>
+        <span class="node-kw">in</span>
+        <NodeV :node="node.body" :selection="selection" :parent="node" />
       </div>
     </span>
     <span v-else-if="node.type === 'binding'">
-      <NodeV :node="node.lhs" :selection="selection" />
-      <span class="expr-op expr-spaced">=</span>
-      <NodeV :node="node.rhs" :selection="selection" />
+      <NodeV :node="node.lhs" :selection="selection" :parent="node" />
+      <span class="node-sym node-spaced">=</span>
+      <NodeV :node="node.rhs" :selection="selection" :parent="node" />
     </span>
+    <span v-else-if="node.type === 'case'">
+      <span class="node-kw">case</span>
+      <NodeV :node="node.subject" :selection="selection" :parent="node" />
+      <span class="node-kw node-spaced">of</span>
+      <div v-for="branch, i in node.branches" :key="i" class="node-block">
+        <NodeV :node="branch" :selection="selection" :parent="node" />
+      </div>
+    </span>
+    <span v-else-if="node.type === 'caseBranch'">
+      <NodeV :node="node.pattern" :selection="selection" :parent="node" />
+      <span class="node-sym node-spaced">-&gt;</span>
+      <NodeV :node="node.body" :selection="selection" :parent="node" />
+    </span>
+    <PatternV v-else-if="node.type === 'pattern'" :node="node" />
     <span v-else-if="node.type === 'apply'">
-      <NodeV :node="node.func" :selection="selection" :with-paren="! is(node.func, ['var', 'num', 'unit', 'apply'])" />
-      <span class="expr-spaced"></span>
-      <NodeV :node="node.arg" :selection="selection" :with-paren="! is(node.arg, ['var', 'num', 'unit'])" />
+      <NodeV :node="node.func" :selection="selection" :parent="node" />
+      <span class="node-spaced"></span>
+      <NodeV :node="node.arg" :selection="selection" :parent="node" />
+    </span>
+    <span v-else-if="node.type === 'binOp'">
+      <NodeV :node="node.lhs" :selection="selection" :parent="node" />
+      <NodeV :node="node.op" :selection="selection" :parent="node" class="node-spaced" />
+      <NodeV :node="node.rhs" :selection="selection" :parent="node" />
     </span>
     <span v-else-if="node.type === 'lambda'">
-      <span class="expr-op">\</span>
-      <NodeV :node="node.param" :selection="selection" />
-      <span class="expr-op expr-spaced">-&gt;</span>
-      <NodeV :node="node.body" :selection="selection" />
+      <span class="node-sym">\</span>
+      <NodeV :node="node.param" :selection="selection" :parent="node" />
+      <span class="node-sym node-spaced">-&gt;</span>
+      <NodeV :node="node.body" :selection="selection" :parent="node" />
     </span>
     <span v-else-if="node.type === 'ann'">
-      <NodeV :node="node.expr" :selection="selection" :with-paren="is(node.expr, ['lambda'])" />
-      <span class="expr-op expr-spaced">::</span>
-      <NodeV :node="node.ann" :selection="selection" />
+      <NodeV :node="node.expr" :selection="selection" :parent="node" />
+      <span class="node-sym node-spaced">::</span>
+      <NodeV :node="node.ann" :selection="selection" :parent="node" />
     </span>
     <span v-else-if="node.type === 'type'">
       <TypeV :type="node.val" />
+    </span>
+    <span v-else-if="node.type === 'def'">
+      <NodeV :node="node.binding" :selection="selection" :parent="node" />
+    </span>
+    <span v-else-if="node.type === 'mod'">
+      <div v-for="def, i in node.defs" :key="i">
+        <NodeV :node="def" :selection="selection" :parent="node" />
+      </div>
     </span>
     <span v-if="withParen">)</span>
   </span>
 </template>
 
-<style scoped>
-.expr {
+<style>
+.node.selected {
+  background-color: dimgrey;
+}
+
+.node.fixed {
+  outline: 1px solid lightblue;
+}
+
+.node {
   display: inline-block;
   text-align: left;
   vertical-align: top;
@@ -99,52 +127,38 @@ const onClick = () => {
   color: lightgrey;
 }
 
-.expr-i-2 + .expr {
-  vertical-align: bottom;
-}
-
-.expr.selected {
-  background-color: dimgrey;
-}
-
-.expr.fixed {
-  outline: 1px solid lightblue;
-}
-
-.expr-i-2 {
+.node-block {
   margin-left: 2ch;
+  display: flex;
+  align-items: end;
 }
 
-.expr-i-4 {
-  margin-left: 4ch;
-}
-
-.expr-i-n1 {
-  margin-left: -1ch;
-}
-
-.expr-kw {
+.node-kw {
   color: lightblue;
   margin-right: 1ch;
 }
 
-.expr-lit, .expr-con {
+.node-lit, .node-con {
   color: lightgreen;
 }
 
-.expr-op {
+.node-sym {
   color: lightcoral;
 }
 
-.expr-var {
+.node-var {
   color: ivory;
 }
 
-:not(.expr-n-2) + .expr-spaced:not(:empty) {
+.node-op {
+  color: lightsalmon;
+}
+
+:not(.node-n-2) + .node-spaced:not(:empty) {
   margin-left: 1ch;
 }
 
-.expr-spaced {
+.node-spaced {
   margin-right: 1ch;
 }
 </style>

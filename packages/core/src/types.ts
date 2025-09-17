@@ -22,12 +22,12 @@ export type Data = {
   cons: DataCon[]
 }
 
-export interface ApplyType<F extends Type = Type, A extends Type = Type> {
+export interface ApplyType {
   sub: 'apply'
-  func: F
-  arg: A
+  func: ApplyType | ConType
+  arg: Type
 }
-export const ApplyType = <F extends Type, A extends Type>(func: F, arg: A): ApplyType<F, A> => ({
+export const ApplyType = (func: ApplyType | ConType, arg: Type): ApplyType => ({
   sub: 'apply',
   func,
   arg,
@@ -37,7 +37,7 @@ export type ApplyTypeCurried<As extends Type[] = []>
     ? F
     : As extends [infer A extends Type, ...infer As extends Type[]]
       ? ApplyTypeCurried<As> extends infer F extends Type
-        ? ApplyType<F, A>
+        ? ApplyType
         : never
       : never
 const _ApplyTypeCurried = <const As extends Type[]>(...types: As): ApplyTypeCurried<As> => {
@@ -96,9 +96,9 @@ export type Type =
 
 export type TypeSub = Type['sub']
 
-export const uncurryApplyType = (type: ApplyType): Type[] => type.func.sub === 'apply'
+export const uncurryApplyType = (type: ApplyType | ConType): [ConType, ...Type[]] => type.sub === 'apply'
   ? [...uncurryApplyType(type.func), type.arg]
-  : [type.func, type.arg]
+  : [type]
 
 export const uncurryFuncType = (type: FuncType): Type[] => type.ret.sub === 'func'
   ? [type.param, ...uncurryFuncType(type.ret)]
@@ -113,47 +113,52 @@ export type TypeDesc =
 
 export type TypeDescSub = TypeDesc['sub']
 
-export const typeNeedsParen = (self: TypeDesc, parent: TypeDesc | null): boolean => parent !== null && (
-  self.sub === 'func' && parent.sub === 'func' ||
-  self.sub === 'func' && parent.sub === 'apply' ||
-  self.sub === 'apply' && parent.sub === 'apply'
-)
-
-export const describeType = (type: Type): TypeDesc => match<Type, TypeDesc>(type)
-  .with({ sub: 'var' }, type => type)
-  .with({ sub: 'con' }, type => {
-    if (type.id === '') return { sub: 'tuple', args: [] }
-    return type
-  })
-  .with({ sub: 'func' }, type => ({
-    sub: 'func',
-    args: uncurryFuncType(type).map(describeType),
-  }))
-  .with({ sub: 'apply' }, type => {
-    const types = uncurryApplyType(type)
-    const [func, ...args] = types
-    if (func.sub === 'con' && func.id === ',')
-      return { sub: 'tuple', args: args.map(describeType) }
-    return { sub: 'apply', args: types.map(describeType) }
-  })
-  .exhaustive()
-
 export namespace Type {
   export const is = (type: Type, subs: TypeSub[]): boolean => subs.includes(type.sub)
 
-  export function assert<S extends TypeSub>(type: Type, sub: S): asserts type is Type & { sub: S } {
-    if (type.sub !== sub) throw new TypeError(`Expected type of sub ${sub}, got ${type.sub}.`)
+  export function coerce<const Ss extends TypeSub[]>(type: Type, subs: Ss): Type & { sub: Ss[number] } {
+    assert(type, subs)
+    return type
   }
 
+  export function assert<const Ss extends TypeSub[]>(type: Type, subs: Ss): asserts type is Type & { sub: Ss[number] } {
+    if (! subs.includes(type.sub)) throw new TypeError(`Expected type of sub ${subs.join(' | ')}, got ${Type.show(type)}.`)
+  }
+
+  export const describe = (type: Type): TypeDesc => match<Type, TypeDesc>(type)
+    .with({ sub: 'var' }, type => type)
+    .with({ sub: 'con' }, type => {
+      if (type.id === '') return { sub: 'tuple', args: [] }
+      return type
+    })
+    .with({ sub: 'func' }, type => ({
+      sub: 'func',
+      args: uncurryFuncType(type).map(describe),
+    }))
+    .with({ sub: 'apply' }, type => {
+      const types = uncurryApplyType(type)
+      const [func, ...args] = types
+      if (func.sub === 'con' && func.id === ',')
+        return { sub: 'tuple', args: args.map(describe) }
+      return { sub: 'apply', args: types.map(describe) }
+    })
+    .exhaustive()
+
+  export const needsParen = (self: TypeDesc, parent: TypeDesc | null): boolean => parent !== null && (
+    self.sub === 'func' && parent.sub === 'func' ||
+    self.sub === 'func' && parent.sub === 'apply' ||
+    self.sub === 'apply' && parent.sub === 'apply'
+  )
+
   export const show = describeToShow(
-    describeType,
+    describe,
     (desc, show) => match<TypeDesc, string>(desc)
       .with({ sub: 'con' }, { sub: 'var' }, type => type.id)
       .with({ sub: 'func' }, ({ args }) => args.map(show).join(' -> '))
       .with({ sub: 'apply' }, ({ args }) => `${args.map(show).join(' ')}`)
       .with({ sub: 'tuple' }, ({ args }) => `(${args.map(show).join(', ')})`)
       .exhaustive(),
-    typeNeedsParen,
+    needsParen,
   )
 }
 

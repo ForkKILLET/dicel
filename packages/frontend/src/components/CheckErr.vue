@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { Check } from '@dicel/core'
+import type { CheckMod } from '@dicel/core'
 import TypeSourced from './TypeSourced.vue'
 
 defineProps<{
-  err: Check.Err
+  err: CheckMod.Err
 }>()
 </script>
 
@@ -23,6 +23,12 @@ defineProps<{
     </template>
     <template v-else-if="err.type === 'UndefinedVar'">
       Undefined variable '{{ err.id }}'.
+    </template>
+    <template v-else-if="err.type === 'PatternErr'">
+      Illegal pattern {{ err.err.type }}
+    </template>
+    <template v-else-if="err.type === 'NoMain'">
+      Undefined variable 'main'.
     </template>
   </div>
 </template>
