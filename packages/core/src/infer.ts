@@ -449,7 +449,7 @@ export class Infer {
         .bind(({ env: envH, type: paramType }) => this
           .infer(body, { ...env, ...envH })
           .map<Infer.Ok>(({ type: bodyType, subst: bodySubst }) => ({
-            type: TypeSourced.actual(FuncType(paramType, bodyType), expr),
+            type: TypeSourced.actual(FuncType(TypeSubst.apply(bodySubst)(paramType), bodyType), expr),
             subst: bodySubst,
           }))
         )
