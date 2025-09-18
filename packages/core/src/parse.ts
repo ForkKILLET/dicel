@@ -550,6 +550,22 @@ export const pLambdaExpr: Parser<LambdaExpr<ExRange>> = p.lazy(() => p.bind(
   ({ val: [, params, , body], range }) => p.result(LambdaExprCurried(params, body, range))
 ))
 
+export type LambdaCaseExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
+  type: 'lambdaCase'
+  branches: CaseBranch<Ex, C>[]
+}
+export const pLambdaCaseExpr: Parser<LambdaCaseExpr<ExRange>> = p.lazy(() => pRanged(p.map(
+  p.seq([
+    p.char('\\'),
+    pSpaced(p.str('case')),
+    pBlock(pCaseBranch),
+  ]),
+  ([, , branches]) => ({
+    type: 'lambdaCase',
+    branches,
+  })
+)))
+
 export const pConType: Parser<ConType> = p.map(
   p.guard(pIdentifier, id => isUpper(id[0])),
   (id): ConType => ({
@@ -576,6 +592,7 @@ export const pParenType: Parser<Type> = p.lazy(() => p.parens(pType))
 export const pTermExpr: Parser<Expr<ExRange>> = pRanged(p.alt([
   pLetExpr,
   pCaseExpr,
+  pLambdaCaseExpr,
   pLambdaExpr,
   pCondExpr,
 ]))
@@ -675,6 +692,9 @@ export namespace Node {
       .with({ type: 'type' }, type => Type.show(type.val))
       .with({ type: 'def' }, def => show(def.binding))
       .with({ type: 'mod' }, ({ defs }) => defs.map(show).join('\n\n'))
+      .with({ type: 'lambdaCase' }, expr =>
+        `\case ${expr.branches.map(show).join('; ')}`
+      )
       .exhaustive(),
     needsParen,
   )
@@ -717,6 +737,7 @@ export type ExprInt<Ex = {}, C extends NodeClassId = '@exprInt'> =
 export type Expr<Ex = {}> =
   | ExprInt<Ex, '@expr'>
   | BinOpExpr<Ex>
+  | LambdaCaseExpr<Ex>
 
 export type Node<Ex = {}> =
   | Expr<Ex>
@@ -792,6 +813,9 @@ export const withId = <C extends NodeClassId, Ex>(node: NodeClass<Ex, C>): NodeC
       case 'lambda':
         newNode.param = traverse(newNode.param)
         newNode.body = traverse(newNode.body)
+        break
+      case 'lambdaCase':
+        newNode.branches = newNode.branches.map(traverse)
         break
       case 'caseBranch':
         newNode.pattern = traverse(newNode.pattern)
@@ -880,6 +904,22 @@ export const ToInternalMap = {
     },
     arg: toInternal(expr.rhs),
   }),
+  lambdaCase: (expr): LambdaExpr<{}, '@exprInt'> => ({
+    type: 'lambda',
+    param: {
+      type: 'pattern',
+      sub: 'var',
+      var: { type: 'var', id: '!subject' },
+    },
+    body: {
+      type: 'case',
+      subject: { type: 'var', id: '!subject' },
+      branches: expr.branches.map(branch => ({
+        ...branch,
+        body: toInternal(branch.body),
+      })),
+    },
+  })
 } satisfies {
   [K in ExprType]: (expr: Expr<{}> & { type: K }) => ExprInt<{}, '@exprInt'>
 }

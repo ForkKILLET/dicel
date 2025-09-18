@@ -3,16 +3,20 @@
 - (v) refa Expr.show
 - (v) auto semi => layout
 - (v) patterns at params & bindings
+- (v) lambda case
 
 - (.) dicel IR => ExprInt
 - (.) modules
 
-- ( ) custom operator & fixity
+- ( ) list comprehension
 - ( ) custom ADT
+- ( ) custom operator & fixity
+
+- ( ) lazy
+
 - ( ) type class
 - ( ) more builtins => stdlib
 - ( ) better errors
-- ( ) lazy
 - ( ) sections
 - ( ) (?) compile to WASM
 

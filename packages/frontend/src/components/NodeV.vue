@@ -90,6 +90,12 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <span class="node-sym node-spaced">-&gt;</span>
       <NodeV :node="node.body" :selection="selection" :parent="node" />
     </span>
+    <span v-else-if="node.type === 'lambdaCase'">
+      <span class="node-sym">\case</span>
+      <div v-for="branch of node.branches" class="node-block">
+        <NodeV :node="branch" :selection="selection" :parent="node" />
+      </div>
+    </span>
     <span v-else-if="node.type === 'ann'">
       <NodeV :node="node.expr" :selection="selection" :parent="node" />
       <span class="node-sym node-spaced">::</span>

@@ -24,6 +24,15 @@ export const filterKeys = <T>(pred: (key: string) => boolean) =>
     fromEntries(),
   )
 
+export const zip3 = <A, B, C>(as: A[], bs: B[], cs: C[]): [A, B, C][] => {
+  const len = Math.min(as.length, bs.length, cs.length)
+  const result: [A, B, C][] = []
+  for (let i = 0; i < len; i ++) {
+    result.push([as[i], bs[i], cs[i]])
+  }
+  return result
+}
+
 export type Signal<T> = [T, (val: T) => void]
 export const setter = <O extends {}, P extends keyof O>(object: O, prop: P) => (val: O[P]) => { object[prop] = val }
 export const signal = <O extends {}, P extends keyof O>(object: O, prop: P): Signal<O[P]> => [ object[prop], setter(object, prop) ]
