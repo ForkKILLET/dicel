@@ -10,7 +10,7 @@ defineProps<{
 <template>
   <div class="type-scheme">
     <span v-if="typeScheme.typeParamSet.size">
-      <span class="type-scheme-op">forall</span>
+      <span class="type-scheme-op">∀</span>
       <span class="type-var" v-for="id of typeScheme.typeParamSet" :key="id">{{ id }}</span>
       <span class="type-scheme-op">.</span>
     </span>

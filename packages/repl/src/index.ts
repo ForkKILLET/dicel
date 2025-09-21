@@ -18,7 +18,7 @@ export const startRepl = () => {
       return
     }
 
-    const expr = parseRes.val.val
+    const expr = parseRes.val
 
     if (process.env.DEBUG) console.log('AST:', expr)
     console.log('Expr: %s', Node.show(expr))

@@ -1,122 +1,122 @@
-import { entries, flat, fromEntries, map, mapValues, pipe } from 'remeda'
-import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, Type, ApplyTypeCurried, Data, ApplyType } from './types'
-import { ConValue, ErrValue, FuncValue, FuncValue2, FuncValueJ, FuncValueJ2, FuncValueN, Value } from './values'
+import { entries, map, mapValues, mergeAll, pipe } from 'remeda'
+import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, ApplyTypeCurried, TypedValueEnv, TypedValue } from './types'
+import { Data, DataEnv } from './data'
+import { ErrValue, FuncValue, FuncValue2, FuncValueJ, FuncValueJ2, Value } from './values'
 import { Dice } from './execute'
-import { generalize } from './infer'
-import { Func, Endo } from './utils'
+import { Endo } from './utils'
 
-export interface TypedBuiltin {
-  type: Type
-  value: Value
-}
-export const TypedBuiltin = <T extends Type>(type: T, value: Value): TypedBuiltin => ({
-  type,
-  value,
-})
 
-export const builtinOps: Record<string, TypedBuiltin> = {
-  '||': TypedBuiltin(
+export const builtinOps: TypedValueEnv = {
+  '||': TypedValue(
     FuncTypeCurried(ConType('Bool'), ConType('Bool'), ConType('Bool')),
     FuncValueJ2((lhs: boolean, rhs: boolean) => lhs || rhs),
   ),
-  '&&': TypedBuiltin(
+  '&&': TypedValue(
     FuncTypeCurried(ConType('Bool'), ConType('Bool'), ConType('Bool')),
     FuncValueJ2((lhs: boolean, rhs: boolean) => lhs && rhs),
   ),
-  '==': TypedBuiltin(
+  '==': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs === rhs),
   ),
-  '!=': TypedBuiltin(
+  '!=': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs !== rhs),
   ),
-  '<': TypedBuiltin(
+  '<': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs < rhs),
   ),
-  '<=': TypedBuiltin(
+  '<=': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs <= rhs),
   ),
-  '>': TypedBuiltin(
+  '>': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs > rhs),
   ),
-  '>=': TypedBuiltin(
+  '>=': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs >= rhs),
   ),
-  '+': TypedBuiltin(
+  '+': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs + rhs),
   ),
-  '-': TypedBuiltin(
+  '-': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs - rhs),
   ),
-  '*': TypedBuiltin(
+  '*': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs * rhs),
   ),
-  '/': TypedBuiltin(
+  '/': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs / rhs),
   ),
-  '%': TypedBuiltin(
+  '%': TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs % rhs),
   ),
-  '.': TypedBuiltin(
+  '.': TypedValue(
     FuncTypeCurried(FuncType(VarType('b'), VarType('c')), FuncType(VarType('a'), VarType('b')), FuncType(VarType('a'), VarType('c'))),
     FuncValueJ2((bc: Endo<Value>, ab: Endo<Value>): Endo<Value> => (a: Value) => bc(ab(a))),
   ),
-  '$': TypedBuiltin(
+  '$': TypedValue(
     FuncTypeCurried(FuncType(VarType('a'), VarType('b')), VarType('a'), VarType('b')),
     FuncValue2((ab, a) => Value.coerce(ab, 'func').val(a)),
   ),
+  '|>': TypedValue(
+    FuncTypeCurried(VarType('a'), FuncType(VarType('a'), VarType('b')), VarType('b')),
+    FuncValue2((a, ab) => Value.coerce(ab, 'func').val(a)),
+  ),
 }
 
-export const builtinFuncs: Record<string, TypedBuiltin> = {
-  undefined: TypedBuiltin(
+export const builtinFuncs: TypedValueEnv = {
+  undefined: TypedValue(
     VarType('a'),
     ErrValue('Undefined'),
   ),
 
-  id: TypedBuiltin(
+  id: TypedValue(
     FuncTypeCurried(VarType('a'), VarType('a')),
     FuncValue(<a>(a: a): a => a),
   ),
-  const: TypedBuiltin(
+  const: TypedValue(
     FuncTypeCurried(VarType('a'), VarType('b'), VarType('a')),
     FuncValue2(<a, b>(a: a, _: b): a => a),
   ),
 
-  roll: TypedBuiltin(
+  roll: TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2(Dice.roll),
   ),
 
-  not: TypedBuiltin(
+  not: TypedValue(
     FuncType(ConType('Bool'), ConType('Bool')),
     FuncValueJ((b: boolean) => ! b),
   ),
 
-  max: TypedBuiltin(
+  neg: TypedValue(
+    FuncType(ConType('Num'), ConType('Num')),
+    FuncValueJ((n: number) => - n),
+  ),
+  max: TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2(Math.max),
   ),
-  min: TypedBuiltin(
+  min: TypedValue(
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2(Math.min),
   ),
-  abs: TypedBuiltin(
+  abs: TypedValue(
     FuncType(ConType('Num'), ConType('Num')),
     FuncValueJ(Math.abs),
   ),
 }
 
-export const builtinData: Record<string, Data> = {
+export const builtinData: DataEnv = {
   Maybe: {
     typeParams: ['a'],
     cons: [
@@ -157,29 +157,28 @@ export const builtinData: Record<string, Data> = {
       { id: ',', params: [VarType('a'), VarType('b')] }
     ]
   },
+  ',,': {
+    typeParams: ['a', 'b', 'c'],
+    cons: [
+      { id: ',,', params: [VarType('a'), VarType('b'), VarType('c')] }
+    ]
+  },
+  ',,,': {
+    typeParams: ['a', 'b', 'c', 'd'],
+    cons: [
+      { id: ',,,', params: [VarType('a'), VarType('b'), VarType('c'), VarType('d')] }
+    ]
+  },
 }
 
-export const builtinDataCons: Record<string, TypedBuiltin> = pipe(
-  builtinData,
-  entries(),
-  map(([id, { cons, typeParams }]) =>
-    cons.map<[string, TypedBuiltin]>(({ id: conId, params }) => [
-      conId,
-      TypedBuiltin(
-        FuncTypeCurried(...params, ApplyTypeCurried(ConType(id), ...typeParams.map(VarType))),
-        FuncValueN(params.length)((...args: Value[]) => ConValue(conId, args)),
-      )
-    ])
-  ),
-  flat(),
-  fromEntries(),
-)
-
-export const builtinVals = {
+export const builtinVals: TypedValueEnv = {
   ...builtinOps,
   ...builtinFuncs,
-  ...builtinDataCons,
+  ...pipe(
+    entries(builtinData),
+    map(([id, data]) => Data.getTypedValueEnv(id, data)),
+    mergeAll,
+  ),
 }
 
-export const builtinEnv: TypeSchemeDict = 
-  mapValues(builtinVals, builtin => generalize(builtin.type))
+export const builtinEnv: TypeSchemeDict = mapValues(builtinVals, builtin => builtin.typeScheme)

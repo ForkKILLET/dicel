@@ -1,10 +1,11 @@
 import { Err, Ok, Result } from 'fk-result'
 import { builtinEnv } from './builtin'
-import { prettify, generalize, Infer } from './infer'
+import { generalize, Infer } from './infer'
 import { ExprInt, Mod } from './parse'
-import { TypeScheme, TypeSchemeDict } from './types'
-import { entries, filter, fromEntries, map, mapValues, pipe } from 'remeda'
+import { prettify, TypeScheme, TypeSchemeDict } from './types'
+import { map, mapValues, mergeAll, pipe } from 'remeda'
 import { filterKeys } from './utils'
+import { Data } from './data'
 
 
 export namespace Check {
@@ -42,8 +43,15 @@ export const checkMod = (
   { isMain = false }: Partial<CheckMod.Options> = {},
 ): CheckMod.Res => {
   const bindings = mod.defs.map(def => def.binding)
+
+  const dataEnv = pipe(
+    mod.dataDefs,
+    map(({ id, data }) => Data.getEnv(id, data)),
+    mergeAll,
+  )
+
   return new Infer()
-    .inferBindings(bindings, builtinEnv, mod)
+    .inferBindings(bindings, { ...builtinEnv, ...dataEnv }, mod)
     .bind(({ env, vars }) =>
       ! isMain || vars.has('main')
         ? Ok({

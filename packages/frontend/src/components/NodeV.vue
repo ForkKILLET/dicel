@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { type ExId, type ExRange, isSymbol, Node } from '@dicel/core'
+import { type ExId, type ExRange, isSymbol, isUpper, Node } from '@dicel/core'
 
 import { computed, useTemplateRef } from 'vue'
 import { Selection, useSelectable } from '../utils/selectable'
@@ -36,7 +36,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <span class="node-con">()</span>
     </span>
     <span v-else-if="node.type === 'var'">
-      <span :class="isSymbol(node.id) ? 'node-op' : 'node-var'">{{ node.id }}</span>
+      <span :class="isSymbol(node.id) ? 'node-op' : isUpper(node.id[0]) ? 'node-con' : 'node-var'">{{ node.id }}</span>
     </span>
     <span v-else-if="node.type === 'cond'">
       <NodeV :node="node.cond" :selection="selection" :parent="node" />
@@ -76,7 +76,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
     <PatternV v-else-if="node.type === 'pattern'" :node="node" />
     <span v-else-if="node.type === 'apply'">
       <NodeV :node="node.func" :selection="selection" :parent="node" />
-      <span class="node-spaced"></span>
+      <span class="node-spaced-right"></span>
       <NodeV :node="node.arg" :selection="selection" :parent="node" />
     </span>
     <span v-else-if="node.type === 'binOp'">
@@ -96,6 +96,18 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV :node="branch" :selection="selection" :parent="node" />
       </div>
     </span>
+    <span v-else-if="node.type === 'list'">
+      [<template v-for="elem, i of node.elems" :key="i">
+        <NodeV :node="elem" :selection="selection" :parent="node" />
+        <span v-if="i < node.elems.length - 1" class="node-spaced-right">,</span>
+      </template>]
+    </span>
+    <span v-else-if="node.type === 'tuple'">
+      (<template v-for="elem, i of node.elems" :key="i">
+        <NodeV :node="elem" :selection="selection" :parent="node" />
+        <span v-if="i < node.elems.length - 1" class="node-spaced-right">,</span>
+      </template>)
+    </span>
     <span v-else-if="node.type === 'ann'">
       <NodeV :node="node.expr" :selection="selection" :parent="node" />
       <span class="node-sym node-spaced">::</span>
@@ -107,8 +119,25 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
     <span v-else-if="node.type === 'def'">
       <NodeV :node="node.binding" :selection="selection" :parent="node" />
     </span>
+    <span v-else-if="node.type === 'dataDef'">
+      <span class="node-kw node-spaced-right">data</span>
+      <span class="node-con">{{ node.id }}</span>
+      <template v-for="id of node.data.typeParams">
+        <span class="node-var node-spaced-left">{{ id }}</span>
+      </template>
+      <span class="node-sym node-spaced">=</span>
+      <template v-for="con, i of node.data.cons" :key="i">
+        <span v-if="i > 0" class="node-sym node-spaced">|</span>
+        <span class="node-con">{{ con.id }}</span>
+        <TypeV v-for="param of con.params" :type="param" class="node-spaced-left" />
+      </template>
+    </span>
     <span v-else-if="node.type === 'mod'">
-      <div v-for="def, i in node.defs" :key="i">
+      <div v-for="dataDef, i of node.dataDefs" :key="i">
+        <NodeV :node="dataDef" :selection="selection" :parent="node" />
+      </div>
+
+      <div v-for="def, i of node.defs" :key="i">
         <NodeV :node="def" :selection="selection" :parent="node" />
       </div>
     </span>
@@ -160,11 +189,16 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
   color: lightsalmon;
 }
 
-:not(.node-n-2) + .node-spaced:not(:empty) {
+.node-spaced {
+  margin-left: 1ch;
+  margin-right: 1ch;
+}
+
+.node-spaced-left {
   margin-left: 1ch;
 }
 
-.node-spaced {
+.node-spaced-right {
   margin-right: 1ch;
 }
 </style>

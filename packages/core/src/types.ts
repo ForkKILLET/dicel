@@ -1,7 +1,8 @@
-import { describeToShow, Func, Reverse } from './utils'
 import { match } from 'ts-pattern'
-import { unreachable } from 'parsecond'
-import { pipe } from 'remeda'
+import { pipe, range } from 'remeda'
+import { describeToShow, notEmpty, unsnoc } from './utils'
+import { generalize, TypeSubst } from './infer'
+import { Value } from './values'
 
 export interface ConType<K extends string = string> {
   sub: 'con'
@@ -12,80 +13,51 @@ export const ConType = <K extends string>(id: K): ConType<K> => ({
   id,
 })
 
-export type DataCon = {
-  id: string
-  params: Type[]
-}
-
-export type Data = {
-  typeParams: string[]
-  cons: DataCon[]
-}
-
 export interface ApplyType {
   sub: 'apply'
-  func: ApplyType | ConType
+  func: Type
   arg: Type
 }
-export const ApplyType = (func: ApplyType | ConType, arg: Type): ApplyType => ({
+export const ApplyType = (func: Type, arg: Type): ApplyType => ({
   sub: 'apply',
   func,
   arg,
 })
-export type ApplyTypeCurried<As extends Type[] = []>
-  = As extends [infer F extends Type]
-    ? F
-    : As extends [infer A extends Type, ...infer As extends Type[]]
-      ? ApplyTypeCurried<As> extends infer F extends Type
-        ? ApplyType
-        : never
-      : never
-const _ApplyTypeCurried = <const As extends Type[]>(...types: As): ApplyTypeCurried<As> => {
-  if (! types.length) throw unreachable()
-  const [head, ...tail] = types
-  return (tail.length
-    ? ApplyType(_ApplyTypeCurried(...tail), head)
+export const ApplyTypeCurried = (...[head, ...tail]: Type[]): Type => (
+  notEmpty(tail)
+    ? pipe(
+      unsnoc(tail),
+      ([tailInit, last]) => ApplyType(ApplyTypeCurried(head, ...tailInit), last)
+    )
     : head
-  ) as ApplyTypeCurried<As>
-}
-export const ApplyTypeCurried = <const As extends Type[]>(...types: As) =>
-  _ApplyTypeCurried(...types.toReversed()) as ApplyTypeCurried<Reverse<As>>
+)
 
-export interface VarType<T extends string = string> {
+export type VarType ={
   sub: 'var'
-  id: T
+  id: string
 }
-export const VarType = <T extends string>(id: T): VarType<T> => ({
+export const VarType = (id: string): VarType => ({
   sub: 'var',
   id,
 })
 
-export interface FuncType<A extends Type = Type, R extends Type = Type> {
+export type FuncType = {
   sub: 'func'
-  param: A
-  ret: R
+  param: Type
+  ret: Type
 }
-export const FuncType = <A extends Type, R extends Type>(param: A, ret: R): FuncType<A, R> => ({
+export const FuncType = (param: Type, ret: Type): FuncType => ({
   sub: 'func',
   param,
   ret,
 })
 
-export type FuncTypeCurried<As extends Type[] = []>
-  = As extends [infer R extends Type]
-    ? R
-    : As extends [infer A extends Type, ...infer Rs extends Type[]]
-      ? FuncTypeCurried<Rs> extends infer R extends Type
-        ? FuncType<A, R>
-        : never
-      : never
-export const FuncTypeCurried = <const As extends Type[]>(...types: As): FuncTypeCurried<As> => {
-  if (! types.length) throw unreachable()
+export const FuncTypeCurried = <const As extends Type[]>(...types: As): Type => {
   const [head, ...tail] = types
   return (tail.length
     ? FuncType(head, FuncTypeCurried(...tail))
     : head
-  ) as FuncTypeCurried<As>
+  )
 }
 
 export type Type =
@@ -96,7 +68,7 @@ export type Type =
 
 export type TypeSub = Type['sub']
 
-export const uncurryApplyType = (type: ApplyType | ConType): [ConType, ...Type[]] => type.sub === 'apply'
+export const uncurryApplyType = (type: Type): Type[] => type.sub === 'apply'
   ? [...uncurryApplyType(type.func), type.arg]
   : [type]
 
@@ -138,7 +110,7 @@ export namespace Type {
     .with({ sub: 'apply' }, type => {
       const types = uncurryApplyType(type)
       const [func, ...args] = types
-      if (func.sub === 'con' && func.id === ',')
+      if (func.sub === 'con' && func.id.includes(','))
         return { sub: 'tuple', args: args.map(describe) }
       return { sub: 'apply', args: types.map(describe) }
     })
@@ -177,15 +149,14 @@ export type HomoPairMatcher<I extends Type, O, S extends TypeSub = TypeSub> = {
   exhaustive: [S] extends [never] ? () => O : never
 }
 export const matchHomoPair = <I extends Type, O>(pair: HomoPair<I>) => {
-  let result: any = null
+  let result: O | null = null
   const matcher = {
-    sub(sub: TypeSub, fn: (pair: TypePair) => any) {
+    sub(sub: TypeSub, fn: (pair: TypePair) => O) {
       if (pair[0].sub === sub) result = fn(pair)
       return matcher
     },
-    exhaustive() {
-      if (result === null) throw unreachable()
-      return result
+    exhaustive(): O {
+      return result!
     }
   } as HomoPairMatcher<I, O, TypeSub>
   return matcher
@@ -208,9 +179,31 @@ export namespace TypeScheme {
     }))
 
   export const show = ({ type, typeParamSet }: TypeScheme): string =>
-    `${typeParamSet.size ? `forall ${[...typeParamSet].join(' ')}. ` : ''}${Type.show(type)}`
+    `${typeParamSet.size ? `∀ ${[...typeParamSet].join(' ')}. ` : ''}${Type.show(type)}`
 }
 
 export type TypeDict = Record<string, Type>
 export type TypeSchemeDict = Record<string, TypeScheme>
 
+export interface TypedValue {
+  typeScheme: TypeScheme
+  value: Value
+}
+export const TypedValue = <T extends Type>(type: T, value: Value): TypedValue => ({
+  typeScheme: generalize(type),
+  value,
+})
+
+export type TypedValueEnv = Record<string, TypedValue>
+
+export const prettify = (typeScheme: TypeScheme): TypeScheme => {
+  const typeParamCount = typeScheme.typeParamSet.size
+  const typeParamList = range(0, typeParamCount).map(i =>
+    typeParamCount <= 3 ? String.fromCharCode('a'.charCodeAt(0) + i) : `t${i + 1}`
+  )
+  const subst: TypeSubst = Object.fromEntries([...typeScheme.typeParamSet].map((id, i) => [id, VarType(typeParamList[i])]))
+  return {
+    typeParamSet: new Set(typeParamList),
+    type: TypeSubst.apply(subst)(typeScheme.type),
+  }
+}

@@ -36,7 +36,7 @@ const withParen = computed(() => Pattern.needsParen(props.node, props.parent))
     <span v-else-if="node.sub === 'con'">
       <NodeV :node="node.con" :selection="selection" :parent="node" />
       <template v-for="arg of node.args">
-        <span class="node-spaced"></span>
+        <span class="node-spaced-right"></span>
         <PatternV :node="arg" :selection="selection" :parent="node" />
       </template>
     </span>

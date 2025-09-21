@@ -1,5 +1,6 @@
 export * from './parse'
 export * from './types'
+export * from './data'
 export * from './infer'
 export * from './check'
 export * from './values'

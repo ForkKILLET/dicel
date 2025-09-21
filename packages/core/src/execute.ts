@@ -1,20 +1,21 @@
-import { fromEntries, map, mapValues, pipe } from 'remeda'
+import { fromEntries, map, mapValues, mergeAll, pipe } from 'remeda'
 import { Result } from 'fk-result'
-import { builtinFuncs, builtinOps, builtinDataCons } from './builtin'
+import { builtinFuncs, builtinOps, builtinVals } from './builtin'
 import { Mod, ExprInt, Pattern, Binding } from './parse'
 import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
 import { collectPatternVars } from './infer'
+import { Data } from './data'
 
 export type Ref = { value: Value }
-export type RuntimeEnv = Record<string, Ref>
+export type ValueEnv = Record<string, Ref>
 
-export namespace RuntimeEnv {
-  export const global = (): RuntimeEnv =>  mapValues(
-    { ...builtinFuncs, ...builtinOps, ...builtinDataCons },
+export namespace ValueEnv {
+  export const global = (): ValueEnv =>  mapValues(
+    builtinVals,
     (builtin): Ref => ({ value: builtin.value })
   )
 
-  export const resolve = (id: string, env: RuntimeEnv): Value => {
+  export const resolve = (id: string, env: ValueEnv): Value => {
     if (id in env) return env[id].value
     throw new Error(`Undefined variable '${id}' (unreachable)`)
   }
@@ -38,15 +39,14 @@ export namespace Dice {
   }
 }
 
-
-const _executePattern = (pattern: Pattern, subject: Value): RuntimeEnv | null => {
+export const evaluatePattern = (pattern: Pattern, subject: Value): ValueEnv | null => {
   switch (pattern.sub) {
     case 'wildcard':
       return {}
     case 'num':
-      Value.assert(subject, 'num')
-      if (subject.val !== pattern.val) return null
-      return {}
+    Value.assert(subject, 'num')
+    if (subject.val !== pattern.val) return null
+    return {}
     case 'unit':
       Value.assert(subject, 'unit')
       return {}
@@ -57,10 +57,10 @@ const _executePattern = (pattern: Pattern, subject: Value): RuntimeEnv | null =>
     case 'con':
       Value.assert(subject, 'con')
       if (pattern.con.id !== subject.id) return null
-      return pattern.args.reduce<RuntimeEnv | null>(
+      return pattern.args.reduce<ValueEnv | null>(
         (env, arg, index) => {
           if (! env) return null
-          const argEnv = _executePattern(arg, subject.args[index])
+          const argEnv = evaluatePattern(arg, subject.args[index])
           if (! argEnv) return null
           return { ...env, ...argEnv }
         },
@@ -69,7 +69,7 @@ const _executePattern = (pattern: Pattern, subject: Value): RuntimeEnv | null =>
   }
 }
 
-const _executeBindings = (bindings: Binding<{}, '@exprInt'>[], env: RuntimeEnv) => {
+export const evaluateBindings = (bindings: Binding<{}, '@exprInt'>[], env: ValueEnv) => {
   const patternVars = bindings.flatMap(({ lhs }) => collectPatternVars(lhs))
   const envI = {
     ...env,
@@ -82,12 +82,13 @@ const _executeBindings = (bindings: Binding<{}, '@exprInt'>[], env: RuntimeEnv) 
     )
   }
   bindings.forEach(({ lhs, rhs }) => {
-    Object.assign(envI, _executePattern(lhs, _execute(rhs, envI)))
+    const envP = evaluatePattern(lhs, evaluate(rhs, envI))
+    Object.assign(envI, envP)
   })
   return envI
 }
 
-const _execute = (expr: ExprInt, env: RuntimeEnv): Value => {
+export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
   const _eval = (): Value => {
     switch (expr.type) {
       case 'num':
@@ -95,40 +96,42 @@ const _execute = (expr: ExprInt, env: RuntimeEnv): Value => {
       case 'unit':
         return UnitValue()
       case 'cond': {
-        const cond = _execute(expr.cond, env)
+        const cond = evaluate(expr.cond, env)
         Value.assert(cond, 'con')
-        return cond.id === 'True' ? _execute(expr.yes, env) : _execute(expr.no, env)
+        return cond.id === 'True' ? evaluate(expr.yes, env) : evaluate(expr.no, env)
       }
       case 'var':
-        return RuntimeEnv.resolve(expr.id, env)
+        return ValueEnv.resolve(expr.id, env)
       case 'let': {
-        const envI = _executeBindings(expr.bindings, env)
-        return _execute(expr.body, envI)
+        const envP = evaluateBindings(expr.bindings, env)
+        if (envP === null) throw new Error('Non-exhaustive patterns in let binding.')
+        return evaluate(expr.body, envP)
       }
       case 'case': {
-        const subject = _execute(expr.subject, env)
+        const subject = evaluate(expr.subject, env)
         for (const branch of expr.branches) {
-          const branchEnv = _executePattern(branch.pattern, subject)
+          const branchEnv = evaluatePattern(branch.pattern, subject)
           if (! branchEnv) continue
-          return _execute(branch.body, { ...env, ...branchEnv })
+          return evaluate(branch.body, { ...env, ...branchEnv })
         }
         throw new Error('Non-exhaustive patterns in case.')
       }
       case 'apply': {
-        const func = _execute(expr.func, env)
+        const func = evaluate(expr.func, env)
         Value.assert(func, 'func')
-        return func.val(_execute(expr.arg, env))
+        return func.val(evaluate(expr.arg, env))
       }
       case 'lambda':
         return FuncValue((arg: Value) => {
-          const paramEnv = _executePattern(expr.param, arg)
-          return _execute(expr.body, {
+          const envP = evaluatePattern(expr.param, arg)
+          if (envP === null) throw new Error('Non-exhaustive patterns in param.')
+          return evaluate(expr.body, {
             ...env,
-            ...paramEnv,
+            ...envP,
           })
         })
       case 'ann':
-        return _execute(expr.expr, env)
+        return evaluate(expr.expr, env)
       default:
         throw new Error(`Unknown expr type: ${(expr as { type: string }).type} (unreachable)`)
     }
@@ -138,8 +141,15 @@ const _execute = (expr: ExprInt, env: RuntimeEnv): Value => {
   return val
 }
 
-export const execute = (expr: ExprInt, env: RuntimeEnv = RuntimeEnv.global()): Result<Value, Error> =>
-  Result.wrap(() => _execute(expr, env))
+export const execute = (expr: ExprInt, env: ValueEnv = ValueEnv.global()): Result<Value, Error> =>
+  Result.wrap(() => evaluate(expr, env))
 
-export const executeMod = (mod: Mod<{}, '@exprInt'>, env: RuntimeEnv = RuntimeEnv.global()): Result<RuntimeEnv, Error> =>
-  Result.wrap(() => _executeBindings(mod.defs.map(def => def.binding), env))
+export const executeMod = (mod: Mod<{}, '@exprInt'>): Result<ValueEnv, Error> => {
+  const dataRuntimeEnv = pipe(
+    mod.dataDefs,
+    map(({ data }) => Data.getValueEnv(data)),
+    mergeAll,
+  )
+  const env = { ...ValueEnv.global(), ...dataRuntimeEnv }
+  return Result.wrap(() => evaluateBindings(mod.defs.map(def => def.binding), env))
+}

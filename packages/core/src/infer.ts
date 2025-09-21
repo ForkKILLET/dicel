@@ -1,9 +1,10 @@
 import { match } from 'ts-pattern'
-import { entries, keys, map, mapValues, omit, pick, pipe, range, values, zip } from 'remeda'
+import { keys, map, mapValues, omit, pick, pipe, range, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
 import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, ApplyType, FuncTypeCurried } from './types'
-import { Binding, ConPattern, ExprInt, Node, Pattern } from './parse'
-import { the, zip3 } from './utils'
+import { Binding, ExprInt, Node, Pattern } from './parse'
+import { the, unionSet, zip3 } from './utils'
+import { Value, ConValue } from './values'
 
 export type TypeSubst = TypeDict
 export namespace TypeSubst {
@@ -15,7 +16,7 @@ export namespace TypeSubst {
       .with({ sub: 'var' }, ({ id }) => typeParamSet.has(id) ? type : subst[id] ?? type)
       .with({ sub: 'func' }, type => FuncType(_apply(type.param), _apply(type.ret)))
       .with({ sub: 'apply' }, type => ApplyType(
-        Type.coerce(_apply(type.func), ['apply', 'con']),
+        _apply(type.func),
         _apply(type.arg))
       )
       .exhaustive()
@@ -203,7 +204,6 @@ export const unify = (lhs: TypeSourced, rhs: TypeSourced): Unify.Res => {
     .exhaustive()
 }
 
-
 export class TypeVarState {
   constructor(public readonly prefix: string) {}
 
@@ -219,7 +219,6 @@ export class TypeVarState {
   }
 }
 
-const unionSet = <T>(sets: Set<T>[]): Set<T> => sets.reduce((a, b) => a.union(b), new Set)
 
 export const collectTypeTypeVars = (type: Type): Set<string> => match(type)
   .with({ sub: 'var' }, ({ id }) => new Set([id]))
@@ -245,18 +244,6 @@ export const generalize = (type: Type, existingVars = new Set<string>): TypeSche
   typeParamSet: collectTypeTypeVars(type).difference(existingVars),
   type,
 })
-
-export const prettify = (typeScheme: TypeScheme): TypeScheme => {
-  const typeParamCount = typeScheme.typeParamSet.size
-  const typeParamList = range(0, typeParamCount).map(i =>
-    typeParamCount <= 3 ? String.fromCharCode('a'.charCodeAt(0) + i) : `t${i + 1}`
-  )
-  const subst: TypeSubst = Object.fromEntries([...typeScheme.typeParamSet].map((id, i) => [id, VarType(typeParamList[i])]))
-  return {
-    typeParamSet: new Set(typeParamList),
-    type: TypeSubst.apply(subst)(typeScheme.type),
-  }
-}
 
 export namespace Infer {
   export type Ok = {
@@ -313,7 +300,6 @@ export namespace InferBinding {
   export type Res = Result<Ok, Err>
 }
 
-
 export class Infer {
   tvs = new TypeVarState('t')
 
@@ -361,6 +347,7 @@ export class Infer {
           )
           .bind(({ env, argTypes }) => {
             const funcType = FuncTypeCurried(...argTypes, patternVar)
+            console.log('u1 %s <-> %s @ %s', Type.show(funcType), Type.show(conType), Node.show(pattern))
             return unify(conType, TypeSourced.actualFunc(funcType, pattern))
               .mapErr(Unify.wrapErr)
               .map(subst => ({

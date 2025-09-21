@@ -106,7 +106,7 @@ export namespace Value {
   export const describe = (value: Value): ValueDesc => match<Value, ValueDesc>(value)
     .with({ tag: 'num' }, { tag: 'unit' }, { tag: 'func' }, value => value)
     .with({ tag: 'con' }, value => match<ConValue, ValueDesc>(value)
-      .with({ id: ',' }, ({ args }) => ({
+      .when(({ id }) => id.includes(','), ({ args }) => ({
         tag: 'tuple',
         vals: args.map(describe)
       }))

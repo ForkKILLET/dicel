@@ -24,10 +24,7 @@ const input = ref(localStorage['input'] ?? '')
 watch(input, () => {
   localStorage['input'] = input.value
 })
-const parseResult = computed(() => parseMod(input.value)
-  .map(({ val }) => val)
-  .mapErr(err => err as ParseErr | null)
-)
+const parseResult = computed(() => parseMod(input.value))
 
 const toInternalResult = computed(() => parseResult.value.map(toInternalMod))
 
@@ -43,12 +40,14 @@ namespace CheckPass {
   export type Res = Result<Ok, Err>
 }
 const checkResult = computed<CheckPass.Res>(() => toInternalResult.value
-  .mapErr(err => ({ type: 'Parse', err }))
-  .bind(mod => checkMod(mod, { isMain: true }).map(({ env }) => (console.log(env) ?? { env, mod }))
+  .mapErr<CheckPass.Err>(err => ({ type: 'Parse', err }))
+  .bind(modInt => checkMod(modInt, { isMain: true })
+  .map(ok => ({ ...ok, mod: modInt }))
 ))
 
 const doExecute = (checkVal: CheckPass.Ok) => {
   const result = executeMod(checkVal.mod).map(env => env['main'].value)
+
   executeResult.value = result
   executeResults.value.push(result)
 
@@ -100,6 +99,7 @@ const makeCmp = (type: Type): Cmp<Value> => {
   if (type.sub !== 'con' && type.sub !== 'apply') return () => 0
   
   const [con, ...args] = uncurryApplyType(type)
+  Type.assert(con, ['con'])
 
   if (con.id === 'Num') return (a, b) => {
     Value.assert(a, 'num')
@@ -214,6 +214,8 @@ declare global {
 
 window.$node = null
 
+Object.assign(window, { Type })
+
 watch(selection, () => {
   if (! inputEl.value) return
   const node = selection.node ?? selection.fixedNode
@@ -242,7 +244,7 @@ const inputEl = useTemplateRef('inputEl')
 
         <div class="parse result section">
           <div v-if="parseResult.isOk" class="parse ok">
-            Expr: <NodeV
+            AST: <NodeV
               :node="parseResult.val"
               :selection="selection"
               @mouseleave="selection.node = null"

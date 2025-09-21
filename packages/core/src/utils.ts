@@ -11,7 +11,11 @@ export type Reverse<T extends any[]> = T extends [infer Head, ...infer Tail]
 
 export const the = <T>(x: T): T => x
 
-export const unsnoc = <T>(arr: T[]): [T[], T] => [
+export type NotEmpty<T> = [T, ...T[]]
+
+export const notEmpty = <T>(arr: T[]): arr is NotEmpty<T> => arr.length > 0
+
+export const unsnoc = <T>(arr: NotEmpty<T>): [T[], T] => [
   arr.slice(0, -1),
   arr[arr.length - 1],
 ]
@@ -23,6 +27,8 @@ export const filterKeys = <T>(pred: (key: string) => boolean) =>
     filter(([key]) => pred(key)),
     fromEntries(),
   )
+
+export const unionSet = <T>(sets: Set<T>[]): Set<T> => sets.reduce((a, b) => a.union(b), new Set)
 
 export const zip3 = <A, B, C>(as: A[], bs: B[], cs: C[]): [A, B, C][] => {
   const len = Math.min(as.length, bs.length, cs.length)
