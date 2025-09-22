@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { type ExId, type ExRange, isSymbol, isUpper, Node } from '@dicel/core'
+import { type DId, type DRange, isSymbol, isUpper, Node } from '@dicel/core'
 
 import { computed, useTemplateRef } from 'vue'
 import { Selection, useSelectable } from '../utils/selectable'
@@ -8,9 +8,9 @@ import TypeV from './TypeV.vue'
 import PatternV from './PatternV.vue'
 
 const props = withDefaults(defineProps<{
-  node: Node<ExRange & ExId> | Node
+  node: Node<DRange & DId> | Node
   selection?: Selection
-  parent?: Node<ExRange & ExId> | Node | null
+  parent?: Node<DRange & DId> | Node | null
 }>(), {
   parent: null,
   selection: Selection,
@@ -38,12 +38,21 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
     <span v-else-if="node.type === 'var'">
       <span :class="isSymbol(node.id) ? 'node-op' : isUpper(node.id[0]) ? 'node-con' : 'node-var'">{{ node.id }}</span>
     </span>
+    <span v-else-if="node.type === 'roll'">
+      <NodeV v-if="node.times" :node="node.times" :selection="selection" :parent="node" />
+      <span class="node-sym">@</span>
+      <NodeV :node="node.sides" :selection="selection" :parent="node" />
+    </span>
     <span v-else-if="node.type === 'cond'">
       <NodeV :node="node.cond" :selection="selection" :parent="node" />
-      <span class="node-sym node-spaced">?</span>
-      <NodeV :node="node.yes" :selection="selection" :parent="node" />
-      <span class="node-sym node-spaced">:</span>
-      <NodeV :node="node.no" :selection="selection" :parent="node" />
+      <div class="node-block">
+        <span class="node-sym node-spaced-right">?</span>
+        <NodeV :node="node.yes" :selection="selection" :parent="node" />
+      </div>
+      <div class="node-block">
+        <span class="node-sym node-spaced-right">:</span>
+        <NodeV :node="node.no" :selection="selection" :parent="node" />
+      </div>
     </span>
     <span v-else-if="node.type === 'let'">
       <span class="node-kw">let</span>
@@ -74,20 +83,19 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <NodeV :node="node.body" :selection="selection" :parent="node" />
     </span>
     <PatternV v-else-if="node.type === 'pattern'" :node="node" />
-    <span v-else-if="node.type === 'apply'">
+    <span v-else-if="node.type === 'applyMulti'">
       <NodeV :node="node.func" :selection="selection" :parent="node" />
-      <span class="node-spaced-right"></span>
-      <NodeV :node="node.arg" :selection="selection" :parent="node" />
+      <NodeV v-for="arg of node.args" :node="arg" :selection="selection" :parent="node" class="node-spaced-left" />
     </span>
     <span v-else-if="node.type === 'binOp'">
       <NodeV :node="node.lhs" :selection="selection" :parent="node" />
       <NodeV :node="node.op" :selection="selection" :parent="node" class="node-spaced" />
       <NodeV :node="node.rhs" :selection="selection" :parent="node" />
     </span>
-    <span v-else-if="node.type === 'lambda'">
+    <span v-else-if="node.type === 'lambdaMulti'">
       <span class="node-sym">\</span>
-      <NodeV :node="node.param" :selection="selection" :parent="node" />
-      <span class="node-sym node-spaced">-&gt;</span>
+      <NodeV v-for="param of node.params" :node="param" :selection="selection" :parent="node" class="node-spaced-right" />
+      <span class="node-sym node-spaced-right">-&gt;</span>
       <NodeV :node="node.body" :selection="selection" :parent="node" />
     </span>
     <span v-else-if="node.type === 'lambdaCase'">
@@ -113,7 +121,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <span class="node-sym node-spaced">::</span>
       <NodeV :node="node.ann" :selection="selection" :parent="node" />
     </span>
-    <span v-else-if="node.type === 'type'">
+    <span v-else-if="node.type === 'typeNode'">
       <TypeV :type="node.val" />
     </span>
     <span v-else-if="node.type === 'def'">
@@ -165,6 +173,10 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
 .node-block {
   margin-left: 2ch;
   display: flex;
+  align-items: start;
+}
+
+.node-block.end {
   align-items: end;
 }
 

@@ -1,10 +1,21 @@
 import { Err, Ok, Result } from 'fk-result'
 import { p, ParseErr, Parser, ParserState, Range } from 'parsecond'
 import { groupByProp, pipe } from 'remeda'
-import { match } from 'ts-pattern'
 import { ApplyTypeCurried, ConType, FuncType, Type, uncurryApplyType, VarType } from './types'
-import { describeToShow } from './utils'
-import { Data } from './data'
+import { unsnoc } from './utils'
+import {
+  DRange, DId,
+  NumExpr, TupleExpr, UnitExpr, VarExpr, Expr, ListExpr, ApplyExpr, Associativity, BinOpExpr,
+  CondExpr, Binding, LetExpr, WildcardPattern, NumPattern, UnitPattern, ConPattern, VarPattern,
+  CaseBranch, CaseExpr, LambdaExpr, LambdaCaseExpr, AnnExpr, Def, Mod, DataDef, Node, Pattern,
+  ApplyMultiExpr, RollExpr,
+  withId,
+  ExprType,
+  TuplePattern,
+  ListPattern,
+  LambdaMultiExpr
+} from './nodes'
+import { isLower, isUpper, SYMBOL_CHARS } from './lex'
 
 declare module 'parsecond' {
   export interface ParseErrMap {
@@ -29,9 +40,7 @@ declare module 'parsecond' {
 }
 
 export type P<T> = Parser<T, ParseErr | null>
-
-export type ExRange = { range: Range }
-export type ExId = { astId: number }
+export type PRes<T> = Result<T, ParseErr | null>
 
 const getCol = (state: ParserState): number => {
   let { index } = state
@@ -78,7 +87,7 @@ const pSpace = pLayout(p.pure(null))
 const pSpaced = p.right(pSpace)
 const pSpacedAround = p.delimitedBy(pSpace, pSpace)
 
-const pRanged = <T extends Node, E>(parser: Parser<T, E>): Parser<T & ExRange, E> =>
+const pRanged = <T extends Node, E>(parser: Parser<T, E>): Parser<T & DRange, E> =>
   oldState => parser(oldState).map(({ val, state }) => ({
     val: {
       ...val,
@@ -97,18 +106,11 @@ const reverseSeq = <T, U>([head, tail]: [T, [U, T][]]): [T, [U, T][]] =>
     [head, []]
   )
 
-export type NumExpr<Ex = {}> = Ex & {
-  type: 'num'
-  val: number
-}
-export const pNum: P<NumExpr<ExRange>> = pRanged(p.map(p.decimal, val => ({
+
+export const pNum: P<NumExpr<DRange>> = pRanged(p.map(p.decimal, val => ({
   type: 'num',
   val,
 })))
-
-export type UnitExpr<Ex = {}> = Ex & {
-  type: 'unit'
-}
 
 export const RESERVE_WORDS = [ 'let', 'in', 'case', 'of', 'data', 'class', 'where' ]
 export const pIdentifier: P<string> = p.bind(
@@ -119,19 +121,9 @@ export const pIdentifier: P<string> = p.bind(
   )
 )
 
-export const SYMBOL_CHARS = '+-*/^%<>=!~&|.$#,'
-export const isSymbol = (str: string) => [...str].every(ch => SYMBOL_CHARS.includes(ch))
-export const isUpper = (char: string) => char >= 'A' && char <= 'Z'
-export const isLower = (char: string) => char >= 'a' && char <= 'z'
-
 export const pSymbol = p.join(p.some(p.oneOf(SYMBOL_CHARS)))
 
-export type TupleExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'tuple'
-  elems: NodeClass<Ex, C>[]
-}
-
-export const pTupleExprInner: P<TupleExpr<ExRange>> = p.lazy(() => pRanged(p.bind(
+export const pTupleExprInner: P<TupleExpr<DRange>> = p.lazy(() => pRanged(p.bind(
   p.sep(pExpr, pSpacedAround(p.char(','))),
   (elems) => p.result(
     elems.length < 2 ? Err(null) :
@@ -140,11 +132,11 @@ export const pTupleExprInner: P<TupleExpr<ExRange>> = p.lazy(() => pRanged(p.bin
   )
 )))
 
-export const pUnitExprInner: P<UnitExpr<ExRange>> = pRanged(p.pure({ type: 'unit' }))
+export const pUnitExprInner: P<UnitExpr<DRange>> = pRanged(p.pure({ type: 'unit' }))
 
-export const pSymbolVarExprInner: P<VarExpr<ExRange>> = pRanged(p.map(pSymbol, (id): VarExpr => ({ type: 'var', id })))
+export const pSymbolVarExprInner: P<VarExpr<DRange>> = pRanged(p.map(pSymbol, (id): VarExpr => ({ type: 'var', id })))
 
-export const pParenExpr: P<Expr<ExRange>> = p.parens(
+export const pParenExpr: P<Expr<DRange>> = p.parens(
   pSpacedAround(p.alt([
     pTupleExprInner,
     p.lazy(() => pExpr),
@@ -153,24 +145,19 @@ export const pParenExpr: P<Expr<ExRange>> = p.parens(
   ]))
 )
 
-export type ListExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'list'
-  elems: NodeClass<Ex, C>[]
-}
 
-export const pListExpr: P<ListExpr<ExRange>> = p.lazy(() => p.map(
-  p.ranged(p.brackets(pSpacedAround(p.alt([
+export const pListExpr: P<ListExpr<DRange>> = p.lazy(() => pRanged(p.map(
+  p.brackets(pSpacedAround(p.alt([
     p.sep(pExpr, pSpacedAround(p.char(','))),
-    p.pure<Expr<ExRange>[]>([]),
-  ])))),
-  ({ val: elems, range }) => ({
+    p.pure<Expr<DRange>[]>([]),
+  ]))),
+  (elems) => ({
     type: 'list',
     elems,
-    range,
   })
-))
+)))
 
-export const pPrimaryExpr: P<Expr<ExRange>> = p.lazy(() => p.alt([
+export const pPrimaryExpr: P<Expr<DRange>> = p.lazy(() => p.alt([
   pParenExpr,
   pListExpr,
   pNum,
@@ -178,79 +165,65 @@ export const pPrimaryExpr: P<Expr<ExRange>> = p.lazy(() => p.alt([
   pCon,
 ]))
 
-export type VarExpr<Ex = {}> = Ex & {
-  type: 'var'
-  id: string
-}
-export const pVar: P<VarExpr<ExRange>> = pRanged(p.map(
+export const pVar: P<VarExpr<DRange>> = pRanged(p.map(
   p.guard(pIdentifier, id => ! isUpper(id[0])),
   id => ({ type: 'var', id })
 ))
-export const pCon: P<VarExpr<ExRange>> = pRanged(p.map(
+export const pCon: P<VarExpr<DRange>> = pRanged(p.map(
   p.guard(pIdentifier, id => isUpper(id[0])),
   id => ({ type: 'var', id })
 ))
 
-export const pRollExpr: P<ApplyExpr<ExRange>> = p.map(
+export const pRollExpr: P<RollExpr<DRange>> = p.map(
   p.ranged(p.seq([
     p.opt(pPrimaryExpr),
     p.char('@'),
     pPrimaryExpr,
   ])),
-  ({ val: [times, , sides], range }): ApplyExpr<ExRange> => _ApplyExprCurried(
-    { type: 'var', id: 'roll', range },
-    [
-      sides,
-      times ? times : { type: 'num', val: 1, range: Range.startOf(range) },
-    ],
+  ({ val: [times, , sides], range }) => ({
+    type: 'roll',
+    times,
+    sides,
     range,
-  )
+  })
 )
+
 export const pRollExprL = p.alt([pRollExpr, pPrimaryExpr])
 
-export type ApplyExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'apply'
-  func: NodeClass<Ex, C>
-  arg: NodeClass<Ex, C>
-}
-const _ApplyExprCurried = (func: Expr<ExRange>, [arg, ...args]: Expr<ExRange>[], range: Range): ApplyExpr<ExRange> => ({
-  type: 'apply',
-  func: ! args.length
-    ? func
-    : _ApplyExprCurried(func, args, Range.outer(range, args[0].range)),
-  arg,
-  range,
-})
-export const ApplyExprCurried = (func: Expr<ExRange>, args: Expr<ExRange>[], range: Range) =>
-  _ApplyExprCurried(func, args.toReversed(), range)
+export const ApplyExprCurried = (func: Expr, args: Expr[]): ApplyExpr => (args.length
+  ? pipe(
+    unsnoc(args),
+    ([args, arg]) => ({
+      type: 'apply',
+      func: ApplyExprCurried(func, args),
+      arg,
+    })
+  )
+  : func
+) as ApplyExpr
 
-export const uncurryApplyExpr = (expr: ApplyExpr<ExRange>): Expr<ExRange>[] => expr.func.type === 'apply'
+export const uncurryApplyExpr = (expr: ApplyExpr<DRange>): Expr<DRange>[] => expr.func.type === 'apply'
     ? [...uncurryApplyExpr(expr.func), expr.arg]
     : [expr.func, expr.arg]
 
-export const pApplyExpr: P<ApplyExpr<ExRange>> = pRanged(p.lazy(() => p.map(
-  p.ranged(p.seq([
+export const pApplyExpr: P<ApplyMultiExpr<DRange>> = pRanged(p.lazy(() => p.map(
+  p.seq([
     p.alt([pVar, pCon, pParenExpr]),
     p.some(pSpaced(pRollExprL))
-  ])),
-  ({ val: [func, args], range }) => ApplyExprCurried(func, args, range)
+  ]),
+  ([func, args]) => ({
+    type: 'applyMulti',
+    func,
+    args,
+  })
 )))
 export const pApplyExprL = p.alt([pApplyExpr, pRollExprL])
 
-export type Associativity = 'left' | 'right'
-
-export type BinOpExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'binOp'
-  op: VarExpr<Ex>
-  lhs: NodeClass<Ex, C>
-  rhs: NodeClass<Ex, C>
-}
-
-export const pBinOp = <T extends Expr<ExRange>, E>(
+export const pBinOp = <T extends Expr<DRange>, E>(
   ops: string[],
   associativity: Associativity,
   base: Parser<T, E>,
-): Parser<Expr<ExRange>, E> => p.map(
+): Parser<Expr<DRange>, E> => p.map(
     p.ranged(p.seq([
       base,
       p.many(p.seq([
@@ -258,10 +231,10 @@ export const pBinOp = <T extends Expr<ExRange>, E>(
         pSpaced(base),
       ])),
     ])),
-    ({ val: seq, range }) => (associativity === 'left'
+    ({ val: seq }) => (associativity === 'left'
       ? pipe(seq, ([head, tail]) => tail
-        .reduce<Expr<ExRange>>(
-          (lhs, [{ val: op, range: opRange }, rhs]): BinOpExpr<ExRange> => ({
+        .reduce<Expr<DRange>>(
+          (lhs, [{ val: op, range: opRange }, rhs]): BinOpExpr<DRange> => ({
             type: 'binOp',
             op: { type: 'var', id: op, range: opRange },
             lhs,
@@ -272,8 +245,8 @@ export const pBinOp = <T extends Expr<ExRange>, E>(
         )
       )
       : pipe(reverseSeq(seq), ([head, tail]) => tail
-        .reduce<Expr<ExRange>>(
-          (rhs, [{ val: op, range: opRange }, lhs]): BinOpExpr<ExRange> => ({
+        .reduce<Expr<DRange>>(
+          (rhs, [{ val: op, range: opRange }, lhs]): BinOpExpr<DRange> => ({
             type: 'binOp',
             op: { type: 'var', id: op, range: opRange },
             lhs,
@@ -286,48 +259,48 @@ export const pBinOp = <T extends Expr<ExRange>, E>(
     )
   )
 
-export const pCompExpr: P<Expr<ExRange>> = pBinOp(['.'], 'right', pApplyExprL)
+export const pCompExpr: P<Expr<DRange>> = pBinOp(['.'], 'right', pApplyExprL)
 
-export const pMulExpr: P<Expr<ExRange>> = pBinOp(['*', '/', '%'], 'left', pCompExpr)
+export const pMulExpr: P<Expr<DRange>> = pBinOp(['*', '/', '%'], 'left', pCompExpr)
 
-export const pAddExpr: P<Expr<ExRange>> = pBinOp(['+', '-'], 'left', pMulExpr)
+export const pAddExpr: P<Expr<DRange>> = pBinOp(['+', '-'], 'left', pMulExpr)
 
-export const pRelExpr: P<Expr<ExRange>> = pBinOp(['<=', '>=', '<', '>'], 'left', pAddExpr)
+export const pCatExpr: P<Expr<DRange>> = pBinOp(['++'], 'right', pAddExpr)
 
-export const pEqExpr: P<Expr<ExRange>> = pBinOp(['==', '!='], 'left', pRelExpr)
+export const pRelExpr: P<Expr<DRange>> = pBinOp(['==', '!=', '<=', '>=', '<', '>'], 'left', pCatExpr)
 
-export const pAndExpr: P<Expr<ExRange>> = pBinOp(['&&'], 'left', pEqExpr)
+export const pEqExpr: P<Expr<DRange>> = pBinOp(['==', '!='], 'left', pRelExpr)
 
-export const pOrExpr: P<Expr<ExRange>> = pBinOp(['||'], 'left', pAndExpr)
+export const pAndExpr: P<Expr<DRange>> = pBinOp(['&&'], 'left', pEqExpr)
 
-export const pConsExpr: P<Expr<ExRange>> = pBinOp(['#'], 'right', pOrExpr)
+export const pOrExpr: P<Expr<DRange>> = pBinOp(['||'], 'left', pAndExpr)
 
-export const pPipeExpr: P<Expr<ExRange>> = pBinOp(['|>'], 'left', pConsExpr)
+export const pConsExpr: P<Expr<DRange>> = pBinOp(['#'], 'right', pOrExpr)
 
-export const pDolExpr: P<Expr<ExRange>> = pBinOp(['$'], 'right', pPipeExpr)
+export const pPipeExpr: P<Expr<DRange>> = pBinOp(['|>'], 'left', pConsExpr)
 
-export type CondExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'cond'
-  cond: NodeClass<Ex, C>
-  yes: NodeClass<Ex, C>
-  no: NodeClass<Ex, C>
-}
-export const pCondExpr: P<Expr<ExRange>> = p.lazy(() => p.map(
+export const pDolExpr: P<Expr<DRange>> = pBinOp(['$'], 'right', pPipeExpr)
+
+export const pBinOpExpr = pBinOp
+
+export const pDolExprL = p.lazy(() => p.alt([pLetExpr, pCaseExpr, pDolExpr]))
+
+export const pCondExpr: P<Expr<DRange>> = p.lazy(() => p.map(
   p.seq([
     pDolExpr,
     p.many(p.map(
       p.seq([
         pSpacedAround(p.char('?')),
-        pDolExpr,
+        pDolExprL,
         pSpacedAround(p.char(':')),
-        pDolExpr,
+        pDolExprL,
       ]),
-      ([, yes, , no]): [Expr<ExRange>, Expr<ExRange>] => [yes, no]
+      ([, yes, , no]): [Expr<DRange>, Expr<DRange>] => [yes, no]
     ))
   ]),
   seq => pipe(reverseSeq(seq), ([head, tail]) =>
-    tail.reduce<Expr<ExRange>>(
-      (no, [yes, cond]): CondExpr<ExRange> => ({
+    tail.reduce<Expr<DRange>>(
+      (no, [yes, cond]): CondExpr<DRange> => ({
         type: 'cond',
         cond,
         yes,
@@ -338,14 +311,10 @@ export const pCondExpr: P<Expr<ExRange>> = p.lazy(() => p.map(
     )
   )
 ))
-export type Binding<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'binding'
-  lhs: Pattern<Ex>
-  rhs: NodeClass<Ex, C>
-}
-export const pBinding: P<Binding<ExRange>> = p.lazy(() => p.map(
+
+export const pBinding: P<Binding<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([pPattern, pSpacedAround(p.char('=')), pExpr])),
-  ({ val: [lhs, , rhs], range }): Binding<ExRange> => ({
+  ({ val: [lhs, , rhs], range }): Binding<DRange> => ({
     type: 'binding',
     lhs,
     rhs,
@@ -353,19 +322,14 @@ export const pBinding: P<Binding<ExRange>> = p.lazy(() => p.map(
   })
 ))
 
-export type LetExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'let'
-  bindings: Binding<Ex, C>[]
-  body: NodeClass<Ex, C>
-}
-export const pLetExpr: P<LetExpr<ExRange>> = p.lazy(() => p.map(
+export const pLetExpr: P<LetExpr<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([
     p.str('let'),
     pBlock(pBinding),
     pSpacedAround(p.str('in')),
     pExpr,
   ])),
-  ({ val: [, bindings, , body], range }): LetExpr<ExRange> => ({
+  ({ val: [, bindings, , body], range }): LetExpr<DRange> => ({
     type: 'let',
     bindings,
     body,
@@ -373,75 +337,27 @@ export const pLetExpr: P<LetExpr<ExRange>> = p.lazy(() => p.map(
   })
 ))
 
-export type WildcardPattern<Ex = {}> = Ex & {
-  type: 'pattern'
-  sub: 'wildcard'
-}
-
-export type NumPattern<Ex = {}> = Ex & {
-  type: 'pattern'
-  sub: 'num'
-  val: number
-}
-
-export type UnitPattern<Ex = {}> = Ex & {
-  type: 'pattern'
-  sub: 'unit'
-}
-
-export type ConPattern<Ex = {}> = Ex & {
-  type: 'pattern'
-  sub: 'con'
-  con: VarExpr<Ex>
-  args: Pattern<Ex>[]
-}
-
-export type VarPattern<Ex = {}> = Ex & {
-  type: 'pattern'
-  sub: 'var'
-  var: VarExpr<Ex>
-}
-
-export type Pattern<Ex = {}> =
-  | WildcardPattern<Ex>
-  | NumPattern<Ex>
-  | UnitPattern<Ex>
-  | ConPattern<Ex>
-  | VarPattern<Ex>
-
-export type CaseBranch<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'caseBranch'
-  pattern: Pattern<Ex>
-  body: NodeClass<Ex, C>
-}
-
-export type CaseExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'case'
-  subject: NodeClass<Ex, C>
-  branches: CaseBranch<Ex, C>[]
-}
-
-export const pWildcardPattern: P<WildcardPattern<ExRange>> = pRanged(p.map(p.char('_'), () => ({
+export const pWildcardPattern: P<WildcardPattern<DRange>> = pRanged(p.map(p.char('_'), () => ({
   type: 'pattern',
   sub: 'wildcard',
 })))
 
-export const pNumPattern: P<NumPattern<ExRange>> = pRanged(p.map(pNum, ({ val }) => ({
+export const pNumPattern: P<NumPattern<DRange>> = pRanged(p.map(pNum, ({ val }) => ({
   type: 'pattern',
   sub: 'num',
   val,
 })))
 
-export const pUnitPattern: P<UnitPattern<ExRange>> = pRanged(
+export const pUnitPattern: P<UnitPattern<DRange>> = pRanged(
   p.parens(pSpaced(p.pure({ type: 'pattern', sub: 'unit' })))
 )
 
-export const pConPattern: P<ConPattern<ExRange>> = p.lazy(() => p.map(
+export const pConPattern: P<ConPattern<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([
     pCon,
     p.many(pSpaced(pPattern)),
   ])),
-  ({ val: [con, args], range }): ConPattern<ExRange> => ({
+  ({ val: [con, args], range }): ConPattern<DRange> => ({
     type: 'pattern',
     sub: 'con',
     con,
@@ -450,51 +366,40 @@ export const pConPattern: P<ConPattern<ExRange>> = p.lazy(() => p.map(
   })
 ))
 
-export const pListPattern: P<Pattern<ExRange>> = p.lazy(() => p.map(
-  p.ranged(p.brackets(p.alt([
+export const pListPattern: P<ListPattern<DRange>> = p.lazy(() => pRanged(p.map(
+  p.brackets(p.alt([
     p.sep(pPattern, pSpacedAround(p.char(','))),
-    p.pure<Pattern<ExRange>[]>([]),
-  ]))),
-  ({ val: elems, range }): Pattern<ExRange> => elems.reduceRight<Pattern<ExRange>>(
-    (last, init) => ({
-      type: 'pattern',
-      sub: 'con',
-      con: { type: 'var', id: '#', range: Range.empty() },
-      args: [init, last],
-      range: Range.outer(init.range, last.range),
-    }),
-    ({
-      type: 'pattern',
-      sub: 'con',
-      con: { type: 'var', id: '[]', range: Range.endOf(range) },
-      args: [],
-      range: Range.endOf(range),
-    })
+    p.pure<Pattern<DRange>[]>([]),
+  ])),
+  (elems) => ({
+    type: 'pattern',
+    sub: 'list',
+    elems,
+  })
+)))
+
+export const pTuplePatternInner: P<TuplePattern<DRange>> = p.lazy(() => pRanged(p.bind(
+  p.sep(pPattern, pSpacedAround(p.char(','))),
+  (elems) => p.result(
+    elems.length < 2 ? Err(null) :
+    elems.length > 4 ? Err(ParseErr('TooLargeTuple', { size: elems.length })) :
+    Ok({ type: 'pattern', sub: 'tuple', elems })
   )
-))
+)))
 
-export const pParenPattern: P<Pattern<ExRange>> = p.lazy(() => p.parens(p.alt([
-  p.map(
-    p.ranged(p.seq([pPattern, pSpacedAround(p.ranged(p.char(','))), pPattern])),
-    ({ val: [lhs, comma, rhs], range }): ConPattern<ExRange> => ({
-      type: 'pattern',
-      sub: 'con',
-      con: { type: 'var', id: ',', range: comma.range },
-      args: [lhs, rhs],
-      range,
-    })
-  ),
+export const pParenPattern: P<Pattern<DRange>> = p.lazy(() => p.parens(pSpacedAround(p.alt([
+  pTuplePatternInner,
   pPattern,
-])))
+]))))
 
-export const pVarPattern: P<VarPattern<ExRange>> = p.map(pVar, (var_) => ({
+export const pVarPattern: P<VarPattern<DRange>> = p.map(pVar, (var_) => ({
   type: 'pattern',
   sub: 'var',
   var: var_,
   range: var_.range,
 }))
 
-export const pPrimaryPattern: P<Pattern<ExRange>> = p.alt([
+export const pPrimaryPattern: P<Pattern<DRange>> = p.alt([
   pParenPattern,
   pListPattern,
   pVarPattern,
@@ -504,9 +409,9 @@ export const pPrimaryPattern: P<Pattern<ExRange>> = p.alt([
   pUnitPattern,
 ])
 
-export const pConsPattern: P<Pattern<ExRange>> = p.lazy(() => p.map(
+export const pConsPattern: P<Pattern<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([pPrimaryPattern, p.ranged(pSpacedAround(p.char('#'))), pPattern])),
-  ({ val: [head, sharp, tail], range }): ConPattern<ExRange> => ({
+  ({ val: [head, sharp, tail], range }): ConPattern<DRange> => ({
     type: 'pattern',
     sub: 'con',
     con: { type: 'var', id: '#', range: sharp.range },
@@ -515,15 +420,15 @@ export const pConsPattern: P<Pattern<ExRange>> = p.lazy(() => p.map(
   })
 ))
 
-export const pPattern: P<Pattern<ExRange>> = p.alt([pConsPattern, pPrimaryPattern])
+export const pPattern: P<Pattern<DRange>> = p.alt([pConsPattern, pPrimaryPattern])
 
-export const pCaseBranch: P<CaseBranch<ExRange>> = p.lazy(() => p.map(
+export const pCaseBranch: P<CaseBranch<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([
     pPattern,
     pSpacedAround(p.str('->')),
     pExpr,
   ])),
-  ({ val: [pattern, , body], range }): CaseBranch<ExRange> => ({
+  ({ val: [pattern, , body], range }): CaseBranch<DRange> => ({
     type: 'caseBranch',
     pattern,
     body,
@@ -531,14 +436,14 @@ export const pCaseBranch: P<CaseBranch<ExRange>> = p.lazy(() => p.map(
   })
 ))
 
-export const pCaseExpr: P<CaseExpr<ExRange>> = p.lazy(() => p.map(
+export const pCaseExpr: P<CaseExpr<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([
     p.str('case'),
     pSpaced(pExpr),
     pSpacedAround(p.str('of')),
     pBlock(pCaseBranch),
   ])),
-  ({ val: [, subject, , cases], range }): CaseExpr<ExRange> => ({
+  ({ val: [, subject, , cases], range }): CaseExpr<DRange> => ({
     type: 'case',
     subject,
     branches: cases,
@@ -546,41 +451,29 @@ export const pCaseExpr: P<CaseExpr<ExRange>> = p.lazy(() => p.map(
   }))
 )
 
-export type LambdaExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'lambda'
-  param: Pattern<Ex>
-  body: NodeClass<Ex, C>
-}
-export const LambdaExprCurried = (
-  [param, ...params]: Pattern<ExRange>[],
-  body: Expr<ExRange>,
-  range: Range
-): Result<LambdaExpr<ExRange>, ParseErr<'ConflictDefinition'>> => {
-  return (! params.length
-    ? Ok(body)
-    : LambdaExprCurried(params, body, Range.outer(params[0].range, range))
-  ).map((body) => ({
-    type: 'lambda',
-    param,
-    body,
-    range
-  }))
-}
-export const pLambdaExpr: P<LambdaExpr<ExRange>> = p.lazy(() => p.bind(
-  p.ranged(p.seq([
+export const LambdaExprCurried = ([param, ...params]: Pattern[], body: Expr): LambdaExpr => ({
+  type: 'lambda',
+  param,
+  body: ! params.length
+    ? body
+    : LambdaExprCurried(params, body),
+})
+
+export const pLambdaMultiExpr: P<LambdaMultiExpr<DRange>> = p.lazy(() => pRanged(p.map(
+  p.seq([
     p.char('\\'),
     p.some(pSpaced(pPattern)),
     pSpacedAround(p.str('->')),
     pExpr,
-  ])),
-  ({ val: [, params, , body], range }) => p.result(LambdaExprCurried(params, body, range))
-))
+  ]),
+  ([, params, , body]) => ({
+    type: 'lambdaMulti',
+    params,
+    body,
+  })
+)))
 
-export type LambdaCaseExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'lambdaCase'
-  branches: CaseBranch<Ex, C>[]
-}
-export const pLambdaCaseExpr: P<LambdaCaseExpr<ExRange>> = p.lazy(() => pRanged(p.map(
+export const pLambdaCaseExpr: P<LambdaCaseExpr<DRange>> = p.lazy(() => pRanged(p.map(
   p.seq([
     p.char('\\'),
     pSpaced(p.str('case')),
@@ -635,33 +528,22 @@ export const pType: P<Type> = p.alt([
   pPrimaryType,
 ])
 
-export type TypeNode<Ex = {}> = Ex & {
-  type: 'type'
-  val: Type
-}
-
 export const pTypeNode = (pSomeType: P<Type>) => pRanged(p.map(pSomeType, val => ({
-  type: 'type',
+  type: 'typeNode',
   val,
 })))
 
-export const pTermExpr: P<Expr<ExRange>> = pRanged(p.alt([
+export const pTermExpr: P<Expr<DRange>> = pRanged(p.alt([
   pLetExpr,
   pCaseExpr,
   pLambdaCaseExpr,
-  pLambdaExpr,
+  pLambdaMultiExpr,
   pCondExpr,
 ]))
 
-export type AnnExpr<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'ann'
-  expr: NodeClass<Ex, C>
-  ann: TypeNode<Ex>
-}
-
-export const pAnnExpr: P<AnnExpr<ExRange>> = p.map(
+export const pAnnExpr: P<AnnExpr<DRange>> = p.map(
   p.ranged(p.seq([pTermExpr, pSpaced(p.str('::')), pTypeNode(pType)])),
-  ({ val: [expr, , ann], range }): AnnExpr<ExRange> => ({
+  ({ val: [expr, , ann], range }): AnnExpr<DRange> => ({
     type: 'ann',
     expr,
     ann,
@@ -669,163 +551,18 @@ export const pAnnExpr: P<AnnExpr<ExRange>> = p.map(
   })
 )
 
-export namespace Pattern {
-  export const needsParen = (self: Pattern, parent: Pattern | null): boolean => parent !== null && (
-    parent.sub === 'con' && self.sub === 'con' && self.args.length > 0
-  )
-
-  export const show = describeToShow<Pattern, Pattern>(
-    pattern => pattern,
-    (pattern: Pattern, show): string => match(pattern)
-      .with({ sub: 'wildcard' }, () => '_')
-      .with({ sub: 'num' }, ({ val }) => String(val))
-      .with({ sub: 'unit' }, () => '()')
-      .with({ sub: 'var' }, ({ var: { id } }) => id)
-      .with({ sub: 'con' }, ({ con: { id }, args }) => `${id} ${args.map(show).join(' ')}`)
-      .exhaustive(),
-    needsParen,
-  )
-}
-
-export namespace Node {
-  export const is = <const Ts extends NodeType[]>(node: Node, types: Ts): node is Node & { type: Ts[number] } => types.includes(node.type)
-
-  export const needsParen = (self: Node, parent: Node | null): boolean => parent !== null && (
-    self.type === 'var' && isSymbol(self.id) && parent.type !== 'binOp' ||
-    parent.type === 'apply' && (
-      self.type === 'lambda' ||
-      self.type === 'apply' && self === parent.arg
-    )
-  )
-
-  export const show = describeToShow<Node, Node>(
-    expr => expr,
-    (expr, show): string => match(expr)
-      .with({ type: 'num' }, expr => String(expr.val))
-      .with({ type: 'unit' }, () => '()')
-      .with({ type: 'var' }, expr => expr.id)
-      .with({ type: 'cond' }, expr =>
-        `${show(expr.cond)} ? ${show(expr.yes)} : ${show(expr.no)}`
-      )
-      .with({ type: 'let' }, expr =>
-        `let ${expr.bindings.map(show).join('; ')} in ${show(expr.body)}`
-      )
-      .with({ type: 'case' }, expr =>
-        `case ${show(expr.subject)} of ${expr.branches.map(show).join('; ')}`
-      )
-      .with({ type: 'caseBranch' }, branch => `${show(branch.pattern)} -> ${show(branch.body)}`)
-      .with({ type: 'pattern' }, Pattern.show)
-      .with({ type: 'binding' }, binding => `${show(binding.lhs)} = ${show(binding.rhs)}`)
-      .with({ type: 'lambda' }, expr =>
-        `(\\${show(expr.param)} -> ${show(expr.body)})`
-      )
-      .with({ type: 'apply' }, expr =>
-        `(${show(expr.func)} ${show(expr.arg)})`
-      )
-      .with({ type: 'binOp' }, expr =>
-        `${show(expr.lhs)} ${expr.op.id} ${show(expr.rhs)}`
-      )
-      .with({ type: 'ann' }, expr =>
-        `(${show(expr.expr)} :: ${show(expr.ann)})`
-      )
-      .with({ type: 'type' }, type => Type.show(type.val))
-      .with({ type: 'def' }, def => show(def.binding))
-      .with({ type: 'mod' }, ({ defs }) => defs.map(show).join('\n\n'))
-      .with({ type: 'lambdaCase' }, expr =>
-        `\case ${expr.branches.map(show).join('; ')}`
-      )
-      .with({ type: 'list' }, expr =>
-        `[${expr.elems.map(show).join(', ')}]`
-      )
-      .with({ type: 'tuple' }, expr =>
-        `(${expr.elems.map(show).join(', ')})`
-      )
-      .with({ type: 'dataDef' }, def =>
-        `data ${[def.id, ...def.data.typeParams].join(' ')} = ${
-          def.data.cons
-            .map(({ id, params }) => `${id}${params.map(param => ` ${Type.show(param)}`).join(' ')}`)
-            .join(' | ')
-        }`
-      )
-      .exhaustive(),
-    needsParen,
-  )
-}
-
-export type NodeClassId = '@expr' | '@exprInt' | '@node' | NodeType
-export type NodeClass<Ex = {}, C extends NodeClassId = '@node'> =
-  C extends '@expr' ? Expr<Ex> :
-  C extends '@exprInt' ? ExprInt<Ex> :
-  C extends '@node' ? Node<Ex> :
-  C extends 'unit' ? UnitExpr<Ex> :
-  C extends 'num' ? NumExpr<Ex> :
-  C extends 'var' ? VarExpr<Ex> :
-  C extends 'let' ? LetExpr<Ex, C> :
-  C extends 'case' ? CaseExpr<Ex, C> :
-  C extends 'cond' ? CondExpr<Ex, C> :
-  C extends 'apply' ? ApplyExpr<Ex, C> :
-  C extends 'lambda' ? LambdaExpr<Ex, C> :
-  C extends 'ann' ? AnnExpr<Ex, C> :
-  C extends 'binOp' ? BinOpExpr<Ex> :
-  C extends 'bindind' ? Binding<Ex> :
-  C extends 'type' ? TypeNode<Ex> :
-  C extends 'caseBranch' ? CaseBranch<Ex> :
-  C extends 'pattern' ? Pattern<Ex> :
-  C extends 'def' ? Def<Ex> :
-  C extends 'mod' ? Mod<Ex> :
-  never
-
-export type ExprInt<Ex = {}, C extends NodeClassId = '@exprInt'> =
-  | UnitExpr<Ex>
-  | NumExpr<Ex>
-  | VarExpr<Ex>
-  | LetExpr<Ex, C>
-  | CaseExpr<Ex, C>
-  | CondExpr<Ex, C>
-  | ApplyExpr<Ex, C>
-  | LambdaExpr<Ex, C>
-  | AnnExpr<Ex, C>
-
-export type Expr<Ex = {}> =
-  | ExprInt<Ex, '@expr'>
-  | BinOpExpr<Ex>
-  | LambdaCaseExpr<Ex>
-  | ListExpr<Ex>
-  | TupleExpr<Ex>
-
-export type Node<Ex = {}> =
-  | Expr<Ex>
-  | Binding<Ex>
-  | TypeNode<Ex>
-  | CaseBranch<Ex>
-  | Pattern<Ex>
-  | Def<Ex>
-  | DataDef<Ex>
-  | Mod<Ex>
-
-export type ExprType = Expr['type']
-export type NodeType = Node['type']
-
-export const pExpr: P<Expr<ExRange>> = p.alt([
+export const pExpr: P<Expr<DRange>> = p.alt([
   pAnnExpr,
   pTermExpr,
 ])
 
-export type Def<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'def'
-  binding: Binding<Ex, C>
-}
-export const pDef: P<Def<ExRange>> = pRanged(p.map(
+export const pDef: P<Def<DRange>> = pRanged(p.map(
   pBinding,
   binding => ({ type: 'def', binding })
 ))
 
-export type DataDef<Ex = {}> = Ex & {
-  type: 'dataDef'
-  id: string
-  data: Data
-}
-export const pDataDef: P<DataDef<ExRange>> = pRanged(p.lazy(() => p.bind(
+
+export const pDataDef: P<DataDef<DRange>> = pRanged(p.lazy(() => p.bind(
   p.seq([
     p.str('data'),
     pSpaced(pCon),
@@ -860,15 +597,6 @@ export const pDataDef: P<DataDef<ExRange>> = pRanged(p.lazy(() => p.bind(
   ))
 ))
 
-export type Class = {
-  typeParams: string[]
-  defs: Def[]
-}
-export type ClassDef = {
-  type: 'classDef'
-  id: string
-  class: Class
-}
 // export const pClassDef: P<ClassDef> = p.lazy(() => p.map(
 //   p.seq([
 //     p.str('class'),
@@ -879,18 +607,12 @@ export type ClassDef = {
 //   ([]) => {}
 // ))
 
-
-export type Mod<Ex = {}, C extends NodeClassId = '@expr'> = Ex & {
-  type: 'mod'
-  defs: Def<Ex, C>[]
-  dataDefs: DataDef<Ex>[]
-}
-export const pMod: P<Mod<ExRange>> =p.map(
+export const pMod: P<Mod<DRange>> =p.map(
   p.ranged(pBlock(p.alt([pDataDef, pDef]))),
   ({ val: defs, range }) => pipe(
     defs,
     groupByProp('type'),
-    ({ def: defs = [], dataDef: dataDefs = [] }): Mod<ExRange> => ({
+    ({ def: defs = [], dataDef: dataDefs = [] }): Mod<DRange> => ({
       type: 'mod',
       defs,
       dataDefs,
@@ -899,204 +621,16 @@ export const pMod: P<Mod<ExRange>> =p.map(
   )
 )
 
-export const withId = <C extends NodeClassId, Ex>(node: NodeClass<Ex, C>): NodeClass<Ex & ExId, C> => {
-  let id = 0
-
-  const traverse = <T extends Node>(node: T): T & ExId => {
-    const newNode = { ...node, astId: id ++ }
-
-    switch (newNode.type) {
-      case 'num':
-      case 'var':
-      case 'type':
-      case 'unit':
-        break
-      case 'apply':
-        newNode.func = traverse(newNode.func)
-        newNode.arg = traverse(newNode.arg)
-        break
-      case 'binOp':
-        newNode.lhs = traverse(newNode.lhs)
-        newNode.op = traverse(newNode.op)
-        newNode.rhs = traverse(newNode.rhs)
-        break
-      case 'cond':
-        newNode.cond = traverse(newNode.cond)
-        newNode.yes = traverse(newNode.yes)
-        newNode.no = traverse(newNode.no)
-        break
-      case 'let':
-        newNode.bindings = newNode.bindings.map(traverse)
-        newNode.body = traverse(newNode.body)
-        break
-      case 'case':
-        newNode.subject = traverse(newNode.subject)
-        newNode.branches = newNode.branches.map(traverse)
-        break
-      case 'lambda':
-        newNode.param = traverse(newNode.param)
-        newNode.body = traverse(newNode.body)
-        break
-      case 'lambdaCase':
-        newNode.branches = newNode.branches.map(traverse)
-        break
-      case 'list':
-        newNode.elems = newNode.elems.map(traverse)
-        break
-      case 'tuple':
-        newNode.elems = newNode.elems.map(traverse)
-        break
-      case 'caseBranch':
-        newNode.pattern = traverse(newNode.pattern)
-        newNode.body = traverse(newNode.body)
-        break
-      case 'pattern':
-        switch (newNode.sub) {
-          case 'num':
-          case 'unit':
-            break
-          case 'con':
-            newNode.con = traverse(newNode.con)
-            newNode.args = newNode.args.map(traverse)
-            break
-          case 'var':
-            newNode.var = traverse(newNode.var)
-            break
-        }
-        break
-      case 'binding':
-        newNode.lhs = traverse(newNode.lhs)
-        newNode.rhs = traverse(newNode.rhs)
-        break
-      case 'ann':
-        newNode.expr = traverse(newNode.expr)
-        newNode.ann = traverse(newNode.ann)
-        break
-      case 'def':
-        newNode.binding = traverse(newNode.binding)
-        break
-      case 'dataDef':
-        break
-      case 'mod':
-        newNode.defs = newNode.defs.map(traverse)
-        newNode.dataDefs = newNode.dataDefs.map(traverse)
-        break
-    }
-    return newNode
-  }
-
-  return traverse(node) as NodeClass<Ex & ExId, C>
-}
-
-export const ToInternalMap = {
-  num: (expr): NumExpr<{}> => expr,
-  unit: (expr): UnitExpr<{}> => expr,
-  var: (expr): VarExpr<{}> => expr,
-  let: (expr): LetExpr<{}, '@exprInt'> => ({
-    ...expr,
-    bindings: expr.bindings.map(binding => ({
-      ...binding,
-      rhs: toInternal(binding.rhs),
-    })),
-    body: toInternal(expr.body),
-  }),
-  case: (expr): CaseExpr<{}, '@exprInt'> => ({
-    ...expr,
-    subject: toInternal(expr.subject),
-    branches: expr.branches.map(branch => ({
-      ...branch,
-      body: toInternal(branch.body),
-    })),
-  }),
-  cond: (expr): CondExpr<{}, '@exprInt'> => ({
-    ...expr,
-    cond: toInternal(expr.cond),
-    yes: toInternal(expr.yes),
-    no: toInternal(expr.no),
-  }),
-  apply: (expr): ApplyExpr<{}, '@exprInt'> => ({
-    ...expr,
-    func: toInternal(expr.func),
-    arg: toInternal(expr.arg),
-  }),
-  lambda: (expr): LambdaExpr<{}, '@exprInt'> => ({
-    ...expr,
-    body: toInternal(expr.body),
-  }),
-  ann: (expr): AnnExpr<{}, '@exprInt'> => ({
-    ...expr,
-    expr: toInternal(expr.expr),
-  }),
-  binOp: (expr): ApplyExpr<{}, '@exprInt'> => ({
-    type: 'apply',
-    func: {
-      type: 'apply',
-      func: { type: 'var', id: expr.op.id },
-      arg: toInternal(expr.lhs),
-    },
-    arg: toInternal(expr.rhs),
-  }),
-  lambdaCase: (expr): LambdaExpr<{}, '@exprInt'> => ({
-    type: 'lambda',
-    param: {
-      type: 'pattern',
-      sub: 'var',
-      var: { type: 'var', id: '!subject' },
-    },
-    body: {
-      type: 'case',
-      subject: { type: 'var', id: '!subject' },
-      branches: expr.branches.map(branch => ({
-        ...branch,
-        body: toInternal(branch.body),
-      })),
-    }
-  }),
-  list: ({ elems, range }): ExprInt => toInternal(elems.reduceRight<Expr<ExRange>>(
-    (tail, head) => ApplyExprCurried(
-      { type: 'var', id: '#', range: Range.inner(head.range, tail.range) },
-      [head, tail],
-      Range.outer(head.range, tail.range),
-    ),
-    { type: 'var', id: '[]', range }
-  )),
-  tuple: ({ elems, range }): ExprInt => toInternal(ApplyExprCurried(
-    { type: 'var', id: `${','.repeat(elems.length - 1)}`, range },
-    elems,
-    range,
-  ))
-} satisfies {
-  [K in ExprType]: (expr: Expr<ExRange> & { type: K }) => ExprInt<{}, '@exprInt'>
-}
-export type ToInternalMap = typeof ToInternalMap
-
-export type ToInternal<K extends ExprType> = ReturnType<ToInternalMap[K]>
-export const toInternal = <K extends ExprType>(expr: Expr & { type: K }): ToInternal<K> => {
-  const map = ToInternalMap[expr.type] as unknown as (expr: Expr & { type: K }) => ToInternal<K>
-  return map(expr)
-}
-
-export const toInternalMod = (mod: Mod): Mod<{}, '@exprInt'> => ({
-  ...mod,
-  defs: mod.defs.map(def => ({
-    ...def,
-    binding: {
-      ...def.binding,
-      rhs: toInternal(def.binding.rhs),
-    },
-  })),
-})
-
-export const parseExpr = (input: string) =>
-  p.map(p.ended(pSpacedAround(pExpr)), withId<'@expr', ExRange>)({
+export const parseExpr = (input: string): PRes<Expr<DRange & DId>> =>
+  p.map(p.ended(pSpacedAround(pExpr)), withId<ExprType, DRange>)({
     input,
     index: 0,
     rest: input,
     layout: [-1],
   }).map(({ val }) => val)
 
-export const parseMod = (input: string) =>
-  p.map(p.ended(pSpacedAround(pMod)), withId<'mod', ExRange>)({
+export const parseMod = (input: string): PRes<Mod<DRange & DId>> =>
+  p.map(p.ended(pSpacedAround(pMod)), withId<'mod', DRange>)({
     input,
     index: 0,
     rest: input,

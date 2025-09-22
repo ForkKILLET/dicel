@@ -1,6 +1,6 @@
 import { match } from 'ts-pattern'
 import { pipe, range } from 'remeda'
-import { describeToShow, notEmpty, unsnoc } from './utils'
+import { describeToShow, unsnoc } from './utils'
 import { generalize, TypeSubst } from './infer'
 import { Value } from './values'
 
@@ -23,14 +23,12 @@ export const ApplyType = (func: Type, arg: Type): ApplyType => ({
   func,
   arg,
 })
-export const ApplyTypeCurried = (...[head, ...tail]: Type[]): Type => (
-  notEmpty(tail)
-    ? pipe(
-      unsnoc(tail),
-      ([tailInit, last]) => ApplyType(ApplyTypeCurried(head, ...tailInit), last)
-    )
-    : head
-)
+export const ApplyTypeCurried = (...[head, ...tail]: Type[]): Type => tail.length
+  ? pipe(
+    unsnoc(tail),
+    ([tailInit, last]) => ApplyType(ApplyTypeCurried(head, ...tailInit), last)
+  )
+  : head
 
 export type VarType ={
   sub: 'var'

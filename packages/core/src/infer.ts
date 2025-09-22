@@ -1,10 +1,9 @@
 import { match } from 'ts-pattern'
-import { keys, map, mapValues, omit, pick, pipe, range, values } from 'remeda'
+import { keys, map, mapValues, omit, pick, pipe, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
 import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, ApplyType, FuncTypeCurried } from './types'
-import { Binding, ExprInt, Node, Pattern } from './parse'
+import { Binding, ExprInt, Node, PatternInt } from './nodes'
 import { the, unionSet, zip3 } from './utils'
-import { Value, ConValue } from './values'
 
 export type TypeSubst = TypeDict
 export namespace TypeSubst {
@@ -61,9 +60,9 @@ export const occurs = (typeVar: string, type: Type): boolean => match(type)
 
 export type TypeSource =
   | { type: 'actual', expr: ExprInt }
-  | { type: 'actual.Func', funcNode: ExprInt | Pattern }
-  | { type: 'actual.Pattern', pattern: Pattern }
-  | { type: 'infer.Func.ret', funcNode: ExprInt | Pattern }
+  | { type: 'actual.Func', funcNode: ExprInt | PatternInt }
+  | { type: 'actual.Pattern', pattern: PatternInt }
+  | { type: 'infer.Func.ret', funcNode: ExprInt | PatternInt }
   | { type: 'infer.Binding.val', valExpr: ExprInt, bindingNode: Node }
   | { type: 'infer.Case', caseExpr: ExprInt }
   | { type: 'infer.Lambda.param', lambdaExpr: ExprInt }
@@ -80,17 +79,17 @@ export namespace TypeSourced {
     source: { type: 'actual', expr },
   })
 
-  export const actualFunc = <T extends Type>(type: T, funcNode: ExprInt | Pattern): TypeSourced<T> => ({
+  export const actualFunc = <T extends Type>(type: T, funcNode: ExprInt | PatternInt): TypeSourced<T> => ({
     ...type,
     source: { type: 'actual.Func', funcNode },
   })
 
-  export const actualPattern = <T extends Type>(type: T, pattern: Pattern): TypeSourced<T> => ({
+  export const actualPattern = <T extends Type>(type: T, pattern: PatternInt): TypeSourced<T> => ({
     ...type,
     source: { type: 'actual.Pattern', pattern },
   })
 
-  export const inferFuncRet = <T extends Type>(type: T, funcNode: ExprInt | Pattern): TypeSourced<T> => ({
+  export const inferFuncRet = <T extends Type>(type: T, funcNode: ExprInt | PatternInt): TypeSourced<T> => ({
     ...type,
     source: { type: 'infer.Func.ret', funcNode },
   })
@@ -234,7 +233,7 @@ export const collectTypeTypeVars = (type: Type): Set<string> => match(type)
 export const collectTypeSchemeTypeVars = (scheme: TypeScheme): Set<string> =>
   collectTypeTypeVars(scheme.type).difference(scheme.typeParamSet)
 
-export const collectPatternVars = (pattern: Pattern): string[] => match(pattern)
+export const collectPatternVars = (pattern: PatternInt): string[] => match(pattern)
   .with({ sub: 'wildcard' }, { sub: 'num' }, { sub: 'unit' }, () => [])
   .with({ sub: 'var' }, ({ var: { id } }) => [id])
   .with({ sub: 'con' }, ({ args }) => args.flatMap(collectPatternVars))
@@ -304,10 +303,10 @@ export class Infer {
   tvs = new TypeVarState('t')
 
   inferPattern(
-    pattern: Pattern,
+    pattern: PatternInt,
     env: TypeEnv,
   ): InferPattern.Res {
-    return match<Pattern, InferPattern.ResUnsourced>(pattern)
+    return match<PatternInt, InferPattern.ResUnsourced>(pattern)
       .with({ sub: 'wildcard' }, () => Ok({
         subst: {},
         env: {},
@@ -364,7 +363,7 @@ export class Infer {
   }
 
   inferBindings(
-    bindings: Binding<{}, '@exprInt'>[],
+    bindings: Binding<{}, 'int'>[],
     env: TypeEnv,
     _node: Node,
   ): InferBinding.Res {

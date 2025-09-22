@@ -1,0 +1,629 @@
+import { Range } from 'parsecond'
+import { match } from 'ts-pattern'
+import { describeToShow, id } from './utils'
+import { Type } from './types'
+import { Data } from './data'
+import { isSymbol } from './lex'
+import { ApplyExprCurried, LambdaExprCurried } from './parse'
+
+export type DRange = { range: Range }
+export type DId = { astId: number }
+
+export type NumExpr<D = {}> = D & {
+  type: 'num'
+  val: number
+}
+export type UnitExpr<D = {}> = D & {
+  type: 'unit'
+}
+
+export type TupleExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'tuple'
+  elems: ExprS<D, S>[]
+}
+
+export type ListExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'list'
+  elems: ExprS<D, S>[]
+}
+
+export type VarExpr<D = {}> = D & {
+  type: 'var'
+  id: string
+}
+
+export type ApplyExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'apply'
+  func: ExprS<D, S>
+  arg: ExprS<D, S>
+}
+
+export type ApplyMultiExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'applyMulti'
+  func: ExprS<D, S>
+  args: ExprS<D, S>[]
+}
+
+export type Associativity = 'left' | 'right'
+
+export type BinOpExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'binOp'
+  op: VarExpr<D>
+  lhs: ExprS<D, S>
+  rhs: ExprS<D, S>
+}
+
+export type RollExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'roll'
+  times: ExprS<D, S> | null
+  sides: ExprS<D, S>
+}
+
+export type CondExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'cond'
+  cond: ExprS<D, S>
+  yes: ExprS<D, S>
+  no: ExprS<D, S>
+}
+
+export type Binding<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'binding'
+  lhs: PatternS<D, S>
+  rhs: ExprS<D, S>
+}
+
+export type LetExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'let'
+  bindings: Binding<D, S>[]
+  body: ExprS<D, S>
+}
+
+export type WildcardPattern<D = {}> = D & {
+  type: 'pattern'
+  sub: 'wildcard'
+}
+
+export type NumPattern<D = {}> = D & {
+  type: 'pattern'
+  sub: 'num'
+  val: number
+}
+
+export type UnitPattern<D = {}> = D & {
+  type: 'pattern'
+  sub: 'unit'
+}
+
+export type ConPattern<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'pattern'
+  sub: 'con'
+  con: VarExpr<D>
+  args: PatternS<D, S>[]
+}
+
+export type ListPattern<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'pattern'
+  sub: 'list'
+  elems: PatternS<D, S>[]
+}
+
+export type TuplePattern<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'pattern'
+  sub: 'tuple'
+  elems: PatternS<D, S>[]
+}
+
+export type VarPattern<D = {}> = D & {
+  type: 'pattern'
+  sub: 'var'
+  var: VarExpr<D>
+}
+
+export type PatternInt<D = {}, S extends NodeStage = 'int'> =
+  | WildcardPattern<D>
+  | NumPattern<D>
+  | UnitPattern<D>
+  | VarPattern<D>
+  | ConPattern<D, S>
+
+export type PatternExt<D = {}, S extends NodeStage = 'raw'> =
+  | ListPattern<D, S>
+  | TuplePattern<D, S>
+
+export type Pattern<D = {}> =
+  | PatternInt<D, 'raw'>
+  | PatternExt<D>
+
+export type PatternS<D, S extends NodeStage> = {
+  raw: Pattern<D>
+  int: PatternInt<D>
+}[S]
+
+export type CaseBranch<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'caseBranch'
+  pattern: PatternS<D, S>
+  body: ExprS<D, S>
+}
+
+export type CaseExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'case'
+  subject: ExprS<D, S>
+  branches: CaseBranch<D, S>[]
+}
+
+export type LambdaMultiExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'lambdaMulti'
+  params: PatternS<D, S>[]
+  body: ExprS<D, S>
+}
+
+export type LambdaExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'lambda'
+  param: PatternS<D, S>
+  body: ExprS<D, S>
+}
+
+export type LambdaCaseExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'lambdaCase'
+  branches: CaseBranch<D, S>[]
+}
+
+export type TypeNode<D = {}> = D & {
+  type: 'typeNode'
+  val: Type
+}
+
+export type AnnExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'ann'
+  expr: ExprS<D, S>
+  ann: TypeNode<D>
+}
+
+export type Def<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'def'
+  binding: Binding<D, S>
+}
+
+export type DataDef<D = {}> = D & {
+  type: 'dataDef'
+  id: string
+  data: Data
+}
+
+export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'mod'
+  defs: Def<D, S>[]
+  dataDefs: DataDef<D>[]
+}
+
+export type Class = {
+  typeParams: string[]
+  defs: Def[]
+}
+export type ClassDef = {
+  type: 'classDef'
+  id: string
+  class: Class
+}
+
+export type ExprInt<D = {}, S extends NodeStage = 'int'> =
+  | UnitExpr<D>
+  | NumExpr<D>
+  | VarExpr<D>
+  | LetExpr<D, S>
+  | CaseExpr<D, S>
+  | CondExpr<D, S>
+  | ApplyExpr<D, S>
+  | LambdaExpr<D, S>
+  | AnnExpr<D, S>
+
+export type ExprExt<D = {}> =
+  | RollExpr<D>
+  | BinOpExpr<D>
+  | ApplyMultiExpr<D>
+  | LambdaMultiExpr<D>
+  | LambdaCaseExpr<D>
+  | ListExpr<D>
+  | TupleExpr<D>
+
+export type Expr<D = {}> =
+  | ExprInt<D, 'raw'>
+  | ExprExt<D>
+
+export type ExprS<D, S extends NodeStage> = {
+  raw: Expr<D>
+  int: ExprInt<D>
+}[S]
+
+export type NodeInt<D = {}, S extends NodeStage = 'raw'> =
+  | ExprInt<D, S>
+  | PatternInt<D, S>
+  | Binding<D>
+  | TypeNode<D>
+  | CaseBranch<D>
+  | Pattern<D>
+  | Def<D>
+  | DataDef<D>
+  | Mod<D>
+
+export type NodeExt<D = {}> =
+  | ExprExt<D>
+  | PatternExt<D>
+
+export type Node<D = {}> =
+  | NodeInt<D, 'raw'>
+  | NodeExt<D>
+
+export type NodeS<D, S extends NodeStage> = {
+  raw: Node<D>
+  int: NodeInt<D>
+}[S]
+
+export type NodeStage = 'raw' | 'int'
+
+export interface ExprSIdToPatternSIdMap {
+  'raw': '@pattern'
+  'int': '@patternInt'
+}
+
+export type ExprType = Expr['type']
+export type NodeType = Node['type']
+
+export namespace Pattern {
+  export const needsParen = (self: Pattern, parent: Pattern | null): boolean => parent !== null && (
+    parent.sub === 'con' && self.sub === 'con' && self.args.length > 0
+  )
+
+  export const show = describeToShow<Pattern, Pattern>(
+    pattern => pattern,
+    (pattern: Pattern, show): string => match(pattern)
+      .with({ sub: 'wildcard' }, () => '_')
+      .with({ sub: 'num' }, ({ val }) => String(val))
+      .with({ sub: 'unit' }, () => '()')
+      .with({ sub: 'var' }, ({ var: { id } }) => id)
+      .with({ sub: 'con' }, ({ con: { id }, args }) => `${id} ${args.map(show).join(' ')}`)
+      .with({ sub: 'tuple' }, ({ elems }) => `(${elems.map(show).join(', ')})`)
+      .with({ sub: 'list' }, ({ elems }) => `[${elems.map(show).join(', ')}]`)
+      .exhaustive(),
+    needsParen,
+  )
+}
+
+export namespace Node {
+  export const is = <const Ts extends NodeType[]>(node: Node, types: Ts): node is Node & { type: Ts[number] } => types.includes(node.type)
+
+  export const needsParen = (self: Node, parent: Node | null): boolean => parent !== null && (
+    self.type === 'var' && isSymbol(self.id) && parent.type !== 'binOp' ||
+    parent.type === 'apply' && (
+      self.type === 'lambda' ||
+      self.type === 'apply' && self === parent.arg
+    )
+  )
+
+  export const show = describeToShow<Node, Node>(
+    expr => expr,
+    (expr, show): string => match(expr)
+      .with({ type: 'num' }, expr => String(expr.val))
+      .with({ type: 'unit' }, () => '()')
+      .with({ type: 'var' }, expr => expr.id)
+      .with({ type: 'cond' }, expr =>
+        `${show(expr.cond)} ? ${show(expr.yes)} : ${show(expr.no)}`
+      )
+      .with({ type: 'let' }, expr =>
+        `let ${expr.bindings.map(show).join('; ')} in ${show(expr.body)}`
+      )
+      .with({ type: 'case' }, expr =>
+        `case ${show(expr.subject)} of ${expr.branches.map(show).join('; ')}`
+      )
+      .with({ type: 'caseBranch' }, branch => `${show(branch.pattern)} -> ${show(branch.body)}`)
+      .with({ type: 'pattern' }, Pattern.show)
+      .with({ type: 'binding' }, binding => `${show(binding.lhs)} = ${show(binding.rhs)}`)
+      .with({ type: 'lambdaMulti' }, expr =>
+        `(\\${expr.params.map(show).join(' ')} -> ${show(expr.body)})`
+      )
+      .with({ type: 'lambda' }, expr =>
+        `(\\${show(expr.param)} -> ${show(expr.body)})`
+      )
+      .with({ type: 'applyMulti' }, expr =>
+        `(${show(expr.func)} ${expr.args.map(show).join(' ')})`
+      )
+      .with({ type: 'apply' }, expr =>
+        `(${show(expr.func)} ${show(expr.arg)})`
+      )
+      .with({ type: 'binOp' }, expr =>
+        `${show(expr.lhs)} ${expr.op.id} ${show(expr.rhs)}`
+      )
+      .with({ type: 'roll' }, expr =>
+        `(${expr.times === null ? '' : show(expr.times)}@${show(expr.sides)})`
+      )
+      .with({ type: 'ann' }, expr =>
+        `(${show(expr.expr)} :: ${show(expr.ann)})`
+      )
+      .with({ type: 'typeNode' }, type => Type.show(type.val))
+      .with({ type: 'def' }, def => show(def.binding))
+      .with({ type: 'mod' }, ({ defs }) => defs.map(show).join('\n\n'))
+      .with({ type: 'lambdaCase' }, expr =>
+        `\case ${expr.branches.map(show).join('; ')}`
+      )
+      .with({ type: 'list' }, expr =>
+        `[${expr.elems.map(show).join(', ')}]`
+      )
+      .with({ type: 'tuple' }, expr =>
+        `(${expr.elems.map(show).join(', ')})`
+      )
+      .with({ type: 'dataDef' }, def =>
+        `data ${[def.id, ...def.data.typeParams].join(' ')} = ${
+          def.data.cons
+            .map(({ id, params }) => `${id}${params.map(param => ` ${Type.show(param)}`).join(' ')}`)
+            .join(' | ')
+        }`
+      )
+      .exhaustive(),
+    needsParen,
+  )
+}
+
+export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> = {
+  unit: UnitExpr<D>
+  num: NumExpr<D>
+  var: VarExpr<D>
+  pattern: PatternS<D, S>
+  typeNode: TypeNode<D>
+  dataDef: DataDef<D>
+  let: LetExpr<D>
+  case: CaseExpr<D, S>
+  cond: CondExpr<D, S>
+  apply: ApplyExpr<D, S>
+  applyMulti: ApplyMultiExpr<D, S>
+  lambda: LambdaExpr<D, S>
+  lambdaMulti: LambdaMultiExpr<D, S>
+  lambdaCase: LambdaCaseExpr<D, S>
+  ann: AnnExpr<D, S>
+  binding: Binding<D, S>
+  caseBranch: CaseBranch<D, S>
+  def: Def<D, S>
+  mod: Mod<D, S>
+  roll: RollExpr<D, S>
+  binOp: BinOpExpr<D, S>
+  list: ListExpr<D, S>
+  tuple: TupleExpr<D, S>
+}[K]
+
+export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & DId> => {
+  let id = 0
+
+  const traverse = <K extends NodeType>(node: NodeH<K, D>): NodeH<K, D & DId> => {
+    const newNode = { ...node, astId: id ++ }
+
+    switch (newNode.type) {
+      case 'num':
+      case 'var':
+      case 'typeNode':
+      case 'unit':
+        break
+      case 'apply':
+        newNode.func = traverse<ExprType>(newNode.func)
+        newNode.arg = traverse<ExprType>(newNode.arg)
+        break
+      case 'applyMulti':
+        newNode.func = traverse<ExprType>(newNode.func)
+        newNode.args = newNode.args.map(traverse<ExprType>)
+        break
+      case 'binOp':
+        newNode.lhs = traverse<ExprType>(newNode.lhs)
+        newNode.op = traverse<'var'>(newNode.op)
+        newNode.rhs = traverse<ExprType>(newNode.rhs)
+        break
+      case 'cond':
+        newNode.cond = traverse<ExprType>(newNode.cond)
+        newNode.yes = traverse<ExprType>(newNode.yes)
+        newNode.no = traverse<ExprType>(newNode.no)
+        break
+      case 'roll':
+        if (newNode.times !== null) newNode.times = traverse<ExprType>(newNode.times)
+        newNode.sides = traverse<ExprType>(newNode.sides)
+        break
+      case 'let':
+        newNode.bindings = newNode.bindings.map(traverse<'binding'>)
+        newNode.body = traverse<ExprType>(newNode.body)
+        break
+      case 'case':
+        newNode.subject = traverse<ExprType>(newNode.subject)
+        newNode.branches = newNode.branches.map(traverse<'caseBranch'>)
+        break
+      case 'lambda':
+        newNode.param = traverse<'pattern'>(newNode.param)
+        newNode.body = traverse<ExprType>(newNode.body)
+        break
+      case 'lambdaMulti':
+        newNode.params = newNode.params.map(traverse<'pattern'>)
+        newNode.body = traverse<ExprType>(newNode.body)
+        break
+      case 'lambdaCase':
+        newNode.branches = newNode.branches.map(traverse<'caseBranch'>)
+        break
+      case 'list':
+        newNode.elems = newNode.elems.map(traverse<ExprType>)
+        break
+      case 'tuple':
+        newNode.elems = newNode.elems.map(traverse<ExprType>)
+        break
+      case 'caseBranch':
+        newNode.pattern = traverse<'pattern'>(newNode.pattern)
+        newNode.body = traverse<ExprType>(newNode.body)
+        break
+      case 'pattern':
+        switch (newNode.sub) {
+          case 'num':
+          case 'unit':
+            break
+          case 'con':
+            newNode.con = traverse<'var'>(newNode.con)
+            newNode.args = newNode.args.map(traverse<'pattern'>)
+            break
+          case 'var':
+            newNode.var = traverse<'var'>(newNode.var)
+            break
+          case 'list':
+            newNode.elems = newNode.elems.map(traverse<'pattern'>)
+            break
+          case 'tuple':
+            newNode.elems = newNode.elems.map(traverse<'pattern'>)
+            break
+        }
+        break
+      case 'binding':
+        newNode.lhs = traverse<'pattern'>(newNode.lhs)
+        newNode.rhs = traverse<ExprType>(newNode.rhs)
+        break
+      case 'ann':
+        newNode.expr = traverse<ExprType>(newNode.expr)
+        newNode.ann = traverse<'typeNode'>(newNode.ann)
+        break
+      case 'def':
+        newNode.binding = traverse<'binding'>(newNode.binding)
+        break
+      case 'dataDef':
+        break
+      case 'mod':
+        newNode.defs = newNode.defs.map(traverse<'def'>)
+        newNode.dataDefs = newNode.dataDefs.map(traverse<'dataDef'>)
+        break
+    }
+    return newNode as NodeH<K, D & DId>
+  }
+
+  return traverse(node) as NodeH<K, D & DId>
+}
+
+export const ToInternalMap = {
+  num: (expr): NumExpr<{}> => expr,
+  unit: (expr): UnitExpr<{}> => expr,
+  var: (expr): VarExpr<{}> => expr,
+  let: (expr): LetExpr<{}, 'int'> => ({
+    ...expr,
+    bindings: expr.bindings.map(toInternal),
+    body: toInternal(expr.body),
+  }),
+  case: (expr): CaseExpr<{}, 'int'> => ({
+    ...expr,
+    subject: toInternal(expr.subject),
+    branches: expr.branches.map(toInternal),
+  }),
+  cond: (expr): CondExpr<{}, 'int'> => ({
+    ...expr,
+    cond: toInternal(expr.cond),
+    yes: toInternal(expr.yes),
+    no: toInternal(expr.no),
+  }),
+  roll: (expr): ApplyExpr<{}, 'int'> => toInternal(ApplyExprCurried(
+    { type: 'var', id: 'roll' },
+    [expr.times ?? { type: 'num', val: 1 }, expr.sides]
+  )),
+  apply: (expr): ApplyExpr<{}, 'int'> => ({
+    ...expr,
+    func: toInternal(expr.func),
+    arg: toInternal(expr.arg),
+  }),
+  applyMulti: (expr): ExprInt => toInternal(
+    ApplyExprCurried(expr.func, expr.args)
+  ),
+  binding: (expr): Binding<{}, 'int'> => ({
+    ...expr,
+    lhs: toInternal(expr.lhs),
+    rhs: toInternal(expr.rhs),
+  }),
+  caseBranch: (expr): CaseBranch<{}, 'int'> => ({
+    ...expr,
+    pattern: toInternal(expr.pattern),
+    body: toInternal(expr.body),
+  }),
+  lambda: (expr): LambdaExpr<{}, 'int'> => ({
+    ...expr,
+    param: toInternal(expr.param),
+    body: toInternal(expr.body),
+  }),
+  lambdaMulti: (expr): LambdaExpr<{}, 'int'> => toInternal(LambdaExprCurried(
+    expr.params, expr.body
+  )),
+  typeNode: (expr): TypeNode<{}> => expr,
+  ann: (expr): AnnExpr<{}, 'int'> => ({
+    ...expr,
+    expr: toInternal(expr.expr),
+  }),
+  binOp: (expr): ApplyExpr<{}, 'int'> => ({
+    type: 'apply',
+    func: {
+      type: 'apply',
+      func: { type: 'var', id: expr.op.id },
+      arg: toInternal(expr.lhs),
+    },
+    arg: toInternal(expr.rhs),
+  }),
+  lambdaCase: (expr): LambdaExpr<{}, 'int'> => ({
+    type: 'lambda',
+    param: {
+      type: 'pattern',
+      sub: 'var',
+      var: { type: 'var', id: '!subject' },
+    },
+    body: {
+      type: 'case',
+      subject: { type: 'var', id: '!subject' },
+      branches: expr.branches.map(toInternal),
+    }
+  }),
+  list: ({ elems }): ExprInt => toInternal(elems.reduceRight<Expr>(
+    (tail, head) => ApplyExprCurried({ type: 'var', id: '#' }, [head, tail]),
+    { type: 'var', id: '[]' }
+  )),
+  tuple: ({ elems }): ExprInt => toInternal(ApplyExprCurried(
+    { type: 'var', id: `${','.repeat(elems.length - 1)}` },
+    elems,
+  )),
+  pattern: (pattern): PatternInt => match<Pattern, PatternInt>(pattern)
+    .with({ sub: 'con' }, pattern => ({
+      ...pattern,
+      con: toInternal(pattern.con),
+      args: pattern.args.map(toInternal),
+    }))
+    .with({ sub: 'tuple' }, pattern => ({
+      type: 'pattern',
+      sub: 'con',
+      con: { type: 'var', id: `${','.repeat(pattern.elems.length - 1)}` },
+      args: pattern.elems.map(toInternal)
+    }))
+    .with({ sub: 'list' }, pattern => toInternal(pattern.elems.reduceRight<Pattern>(
+      (last, init) => ({
+        type: 'pattern',
+        sub: 'con',
+        con: { type: 'var', id: '#' },
+        args: [init, last],
+      }),
+      ({
+        type: 'pattern',
+        sub: 'con',
+        con: { type: 'var', id: '[]' },
+        args: [],
+      })
+    )))
+    .otherwise(id),
+  def: (def): Def<{}, 'int'> => ({
+    ...def,
+    binding: toInternal(def.binding)
+  }),
+  dataDef: (def): DataDef<{}> => def,
+  mod: (mod): Mod<{}, 'int'> => ({
+    ...mod,
+    defs: mod.defs.map(toInternal),
+  }),
+} satisfies {
+  [K in NodeType]: (expr: Node & { type: K }) => NodeInt
+}
+export type ToInternalMap = typeof ToInternalMap
+
+export type ToInternal<K extends NodeType> = ReturnType<ToInternalMap[K]>
+export const toInternal = <K extends NodeType>(node: Node & { type: K }): ToInternal<K> => {
+  const map = ToInternalMap[node.type] as unknown as (node: Node & { type: K }) => ToInternal<K>
+  return map(node)
+}

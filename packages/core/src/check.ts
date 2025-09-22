@@ -1,11 +1,11 @@
 import { Err, Ok, Result } from 'fk-result'
 import { builtinEnv } from './builtin'
 import { generalize, Infer } from './infer'
-import { ExprInt, Mod } from './parse'
 import { prettify, TypeScheme, TypeSchemeDict } from './types'
 import { map, mapValues, mergeAll, pipe } from 'remeda'
 import { filterKeys } from './utils'
 import { Data } from './data'
+import { ExprInt, Mod } from './nodes'
 
 
 export namespace Check {
@@ -39,7 +39,7 @@ export const check = (expr: ExprInt): Check.Res => new Infer()
   .map(({ type }) => ({ typeScheme: prettify(generalize(type)) }))
 
 export const checkMod = (
-  mod: Mod<{}, '@exprInt'>,
+  mod: Mod<{}, 'int'>,
   { isMain = false }: Partial<CheckMod.Options> = {},
 ): CheckMod.Res => {
   const bindings = mod.defs.map(def => def.binding)

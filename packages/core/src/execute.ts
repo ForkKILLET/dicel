@@ -1,10 +1,10 @@
 import { fromEntries, map, mapValues, mergeAll, pipe } from 'remeda'
 import { Result } from 'fk-result'
 import { builtinFuncs, builtinOps, builtinVals } from './builtin'
-import { Mod, ExprInt, Pattern, Binding } from './parse'
 import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
 import { collectPatternVars } from './infer'
 import { Data } from './data'
+import { Binding, ExprInt, Mod, PatternInt } from './nodes'
 
 export type Ref = { value: Value }
 export type ValueEnv = Record<string, Ref>
@@ -39,14 +39,14 @@ export namespace Dice {
   }
 }
 
-export const evaluatePattern = (pattern: Pattern, subject: Value): ValueEnv | null => {
+export const evaluatePattern = (pattern: PatternInt, subject: Value): ValueEnv | null => {
   switch (pattern.sub) {
     case 'wildcard':
       return {}
     case 'num':
-    Value.assert(subject, 'num')
-    if (subject.val !== pattern.val) return null
-    return {}
+      Value.assert(subject, 'num')
+      if (subject.val !== pattern.val) return null
+      return {}
     case 'unit':
       Value.assert(subject, 'unit')
       return {}
@@ -66,10 +66,12 @@ export const evaluatePattern = (pattern: Pattern, subject: Value): ValueEnv | nu
         },
         {}
       )
+    default:
+      throw new Error(`Unknown pattern type: ${(pattern as { sub: string }).sub} (unreachable)`)
   }
 }
 
-export const evaluateBindings = (bindings: Binding<{}, '@exprInt'>[], env: ValueEnv) => {
+export const evaluateBindings = (bindings: Binding<{}, 'int'>[], env: ValueEnv) => {
   const patternVars = bindings.flatMap(({ lhs }) => collectPatternVars(lhs))
   const envI = {
     ...env,
@@ -86,6 +88,14 @@ export const evaluateBindings = (bindings: Binding<{}, '@exprInt'>[], env: Value
     Object.assign(envI, envP)
   })
   return envI
+}
+
+export class EvaluateError extends Error {
+  name = 'EvaluateError'
+
+  constructor(msg: string, public expr: ExprInt) {
+    super(msg)
+  }
 }
 
 export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
@@ -137,14 +147,14 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
     }
   }
   const val = _eval()
-  if (val.tag === 'err') throw new Error(val.msg)
+  if (val.tag === 'err') throw new EvaluateError(val.msg, expr)
   return val
 }
 
-export const execute = (expr: ExprInt, env: ValueEnv = ValueEnv.global()): Result<Value, Error> =>
+export const execute = (expr: ExprInt, env: ValueEnv = ValueEnv.global()): Result<Value, EvaluateError> =>
   Result.wrap(() => evaluate(expr, env))
 
-export const executeMod = (mod: Mod<{}, '@exprInt'>): Result<ValueEnv, Error> => {
+export const executeMod = (mod: Mod<{}, 'int'>): Result<ValueEnv, EvaluateError> => {
   const dataRuntimeEnv = pipe(
     mod.dataDefs,
     map(({ data }) => Data.getValueEnv(data)),

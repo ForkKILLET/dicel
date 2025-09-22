@@ -5,17 +5,39 @@ export type Cmp<T> = (a: T, b: T) => number
 
 export type Endo<T> = (x: T) => T
 
+export type Λ<R extends any = any, As extends any[] = any[]> = {
+  '#params': As
+  '#ret': R
+}
+export namespace Λ {
+  export type Apply<F extends Λ, As extends F['#params']> =
+    F & { args: As } extends infer FA extends { ret: unknown }
+      ? FA['ret'] extends infer R extends Ret<Λ>
+        ? R
+        : never
+      : never
+
+  export type Ret<F extends Λ> = F['#ret']
+
+  export type Params<F extends Λ> = F['#params']
+  export type Param0<F extends Λ> = Params<F>[0]
+  export type Param1<F extends Λ> = Params<F>[1]
+
+  export type Args<F extends Λ> = F extends { args: infer A extends [...Params<F>, ...any[]] } ? A : never
+  export type Arg0<F extends Λ> = Args<F>[0]
+  export type Arg1<F extends Λ> = Args<F>[1]
+}
+
 export type Reverse<T extends any[]> = T extends [infer Head, ...infer Tail]
   ? [...Reverse<Tail>, Head]
   : []
 
-export const the = <T>(x: T): T => x
+export const id = <T>(x: T): T => x
+export const the = id
 
 export type NotEmpty<T> = [T, ...T[]]
 
-export const notEmpty = <T>(arr: T[]): arr is NotEmpty<T> => arr.length > 0
-
-export const unsnoc = <T>(arr: NotEmpty<T>): [T[], T] => [
+export const unsnoc = <T>(arr: T[]): [T[], T] => [
   arr.slice(0, -1),
   arr[arr.length - 1],
 ]

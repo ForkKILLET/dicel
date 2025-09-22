@@ -1,15 +1,15 @@
 import { computed, type Ref } from 'vue'
-import { Node, type ExRange, type ExId } from '@dicel/core'
+import { Node, type DRange, type DId } from '@dicel/core'
 import { useEventListener } from '@vueuse/core'
 
 export type Selection = {
-  node: Node<ExRange & ExId> | null
-  fixedNode: Node<ExRange & ExId> | null
+  node: Node<DRange & DId> | null
+  fixedNode: Node<DRange & DId> | null
 }
 export const Selection = (): Selection => ({ node: null, fixedNode: null })
 
 export type Selectable = {
-  node: Node<ExRange & ExId> | Node
+  node: Node<DRange & DId> | Node
   selection: Selection
 }
 

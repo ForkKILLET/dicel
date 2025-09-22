@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { capitalize, computed, reactive, ref, useTemplateRef, watch } from 'vue'
 import {
-  type Node, type ExRange, type ExId, type Check, Value,
+  type Node, type DRange, type DId, type Check, Value,
   UnitValue, ErrValue, builtinData, Type, uncurryApplyType, TypeSubst,
-  parseMod, toInternalMod,
+  parseMod, toInternal,
   type CheckMod, checkMod,
   type Mod, executeMod, isSymbol,
 } from '@dicel/core'
@@ -26,11 +26,11 @@ watch(input, () => {
 })
 const parseResult = computed(() => parseMod(input.value))
 
-const toInternalResult = computed(() => parseResult.value.map(toInternalMod))
+const toInternalResult = computed(() => parseResult.value.map(toInternal))
 
 namespace CheckPass {
   export type Ok = CheckMod.Ok & {
-    mod: Mod<{}, '@exprInt'>
+    mod: Mod<{}, 'int'>
   }
   export type ParseErrWrapped = {
     type: 'Parse'
@@ -51,10 +51,12 @@ const doExecute = (checkVal: CheckPass.Ok) => {
   executeResult.value = result
   executeResults.value.push(result)
 
-  const { label, value } = result.match(
-    value => ({ label: Value.show(value), value }),
-    err => ({ label: 'Error', value: ErrValue(err.message) })
-  )
+  const { label, value } = result
+    .tapErr(err => console.error(err, err.expr))
+    .match(
+      value => ({ label: Value.show(value), value }),
+      err => ({ label: 'Error', value: ErrValue(err.message) })
+    )
 
   const count = (dis.get(label)?.count ?? 0) + 1
   dis.set(label, { label, value, count })
@@ -208,7 +210,7 @@ const selection = reactive<Selection>(Selection())
 
 declare global {
   interface Window {
-    $node: Node<ExRange & ExId> | null
+    $node: Node<DRange & DId> | null
   }
 }
 
@@ -230,6 +232,7 @@ watch(selection, () => {
   }
 })
 
+const followSelection = ref(false)
 const inputEl = useTemplateRef('inputEl')
 
 </script>
@@ -243,13 +246,13 @@ const inputEl = useTemplateRef('inputEl')
         </div>
 
         <div class="parse result section">
+          <button>Selection: {{ followSelection ? 'on' : 'off' }}</button>
           <div v-if="parseResult.isOk" class="parse ok">
             AST: <NodeV
               :node="parseResult.val"
               :selection="selection"
               @mouseleave="selection.node = null"
             />
-
             <div>
               Selected node:
               <NodeLabelled :node="selection.node" />
@@ -305,8 +308,8 @@ const inputEl = useTemplateRef('inputEl')
           <div class="dis section">
             <div>
               Distribution (<span class="dis-total">{{ disTotal }}x</span>):
-              <button @click="disGraphDir = disGraphDirNext">{{ capitalize(disGraphDirNext) }} view</button>
-              <button @click="sortByCount = ! sortByCount">Sort by {{ sortByCount ? 'label' : 'count' }}</button>
+              <button @click="disGraphDir = disGraphDirNext">{{ capitalize(disGraphDir) }} view</button>
+              <button @click="sortByCount = ! sortByCount">Sort by {{ sortByCount ? 'count' : 'label' }}</button>
               <button @click="sortDir = - sortDir">Sort {{ sortDir > 0 ? 'desc' : 'asc' }}</button>
             </div>
             <div class="dis-scroll">
@@ -324,27 +327,28 @@ const inputEl = useTemplateRef('inputEl')
                   :key="label"
                   class="dis-bar"
                   :class="{ 'dis-bar-err': label === 'Error' }"
+                  :transform="`translate(${x + width / 2}, ${0})`"
                 >
                   <rect
                     class="dis-bar-bar"
-                    :x="x + width / 2 - 15"
+                    :x="- 15"
                     :y="y"
                     :width="30"
                     :height="height"
                   />
                   <text
                     class="dis-bar-val"
-                    :x="x + width / 2"
+                    :x="0"
                     :y="100 + disChHeight"
                   >{{ label }}</text>
                   <text
                     class="dis-bar-count"
-                    :x="x + width / 2"
+                    :x="0"
                     :y="100 + disChHeight * 2"
                   >{{ count }}</text>
                   <text
                     class="dis-bar-count"
-                    :x="x + width / 2"
+                    :x="0"
                     :y="100 + disChHeight * 3"
                   >{{ prob }}</text>
                 </g>
@@ -496,9 +500,13 @@ pre {
   font-size: .9em;
 }
 
+.dis-bar {
+  transition: transform .2s;
+}
+
 .dis-bar-bar {
-  transition: x 0.2s, y 0.2s, height 0.2s;
   fill: lightblue;
+  transition: height .2s, y .2s;
 }
 
 .horizontal .dis-bar-count, .horizontal .dis-bar-val {

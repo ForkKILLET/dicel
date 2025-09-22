@@ -43,6 +43,18 @@ const withParen = computed(() => Pattern.needsParen(props.node, props.parent))
     <span v-else-if="node.sub === 'wildcard'">
       <span class="node-sym">_</span>
     </span>
+    <span v-else-if="node.sub === 'list'">
+      [<template v-for="elem, i of node.elems">
+        <PatternV :node="elem" :selection="selection" :parent="node" />
+        <span v-if="i < node.elems.length - 1" class="node-spaced-right">,</span>
+      </template>]
+    </span>
+    <span v-else-if="node.sub === 'tuple'">
+      (<template v-for="elem, i of node.elems">
+        <PatternV :node="elem" :selection="selection" :parent="node" />
+        <span v-if="i < node.elems.length - 1" class="node-spaced-right">,</span>
+      </template>)
+    </span>
     <template v-if="withParen">)</template>
   </span>
 </template>

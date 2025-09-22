@@ -1,10 +1,11 @@
 import { Result } from 'fk-result'
 import { ParseErr } from 'parsecond'
 import { CheckMod, checkMod } from './check'
-import { Mod, parseMod, toInternalMod } from './parse'
+import { parseMod } from './parse'
 import { executeMod, ValueEnv } from './execute'
 import { TypeEnv } from './infer'
 import { Value } from './values'
+import { Mod, toInternal } from './nodes'
 
 export namespace Run {
   export const enum Pass {
@@ -16,13 +17,13 @@ export namespace Run {
 
   export type Err =
     | { pass: Pass.Parse, err: ParseErr | null }
-    | { pass: Pass.Check, err: CheckMod.Err, mod: Mod, modInt: Mod<{}, '@exprInt'> }
-    | { pass: Pass.Execute, err: Error, mod: Mod, modInt: Mod<{}, '@exprInt'>, env: TypeEnv }
+    | { pass: Pass.Check, err: CheckMod.Err, mod: Mod, modInt: Mod<{}, 'int'> }
+    | { pass: Pass.Execute, err: Error, mod: Mod, modInt: Mod<{}, 'int'>, env: TypeEnv }
 
   export type Ok = {
     pass: Pass.Finish
     mod: Mod
-    modInt: Mod<{}, '@exprInt'>
+    modInt: Mod<{}, 'int'>
     env: TypeEnv
     runtimeEnv: ValueEnv
     mainValue: Value
@@ -42,7 +43,7 @@ export class Pipeline {
           .mapErr<Run.Err>(err => ({ pass: Run.Pass.Parse, err }))
           .unwrap()
 
-        const modInt = toInternalMod(mod)
+        const modInt = toInternal(mod)
 
         const { env } = checkMod(modInt, { isMain: true })
           .mapErr<Run.Err>(err => ({ pass: Run.Pass.Check, err, mod, modInt }))
