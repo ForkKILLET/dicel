@@ -3,11 +3,9 @@ import { capitalize, computed, reactive, ref, useTemplateRef, watch } from 'vue'
 import {
   type Node, type DRange, type DId, type Check, Value,
   UnitValue, ErrValue, builtinData, Type, uncurryApplyType, TypeSubst,
-  parseMod, toInternal,
-  type CheckMod, checkMod,
-  type Mod, executeMod, isSymbol,
+  executeMod, isSymbol,
+  Pipeline,
 } from '@dicel/core'
-import type { ParseErr } from 'parsecond'
 import { zip } from 'remeda'
 import { Ok, type Result } from 'fk-result'
 
@@ -24,26 +22,9 @@ const input = ref(localStorage['input'] ?? '')
 watch(input, () => {
   localStorage['input'] = input.value
 })
-const parseResult = computed(() => parseMod(input.value))
 
-const toInternalResult = computed(() => parseResult.value.map(toInternal))
+const pipeline = new Pipeline()
 
-namespace CheckPass {
-  export type Ok = CheckMod.Ok & {
-    mod: Mod<{}, 'int'>
-  }
-  export type ParseErrWrapped = {
-    type: 'Parse'
-    err: ParseErr | null
-  }
-  export type Err = CheckMod.Err | ParseErrWrapped
-  export type Res = Result<Ok, Err>
-}
-const checkResult = computed<CheckPass.Res>(() => toInternalResult.value
-  .mapErr<CheckPass.Err>(err => ({ type: 'Parse', err }))
-  .bind(modInt => checkMod(modInt, { isMain: true })
-  .map(ok => ({ ...ok, mod: modInt }))
-))
 
 const doExecute = (checkVal: CheckPass.Ok) => {
   const result = executeMod(checkVal.mod).map(env => env['main'].value)
@@ -216,13 +197,13 @@ declare global {
 
 window.$node = null
 
-Object.assign(window, { Type })
-
 watch(selection, () => {
   if (! inputEl.value) return
   const node = selection.node ?? selection.fixedNode
+  if (node) window.$node = node
+
+  if (! followSelection.value) return
   if (node) {
-    window.$node = node
     const { start, end } = node.range
     inputEl.value.focus()
     inputEl.value.setSelectionRange(start, end)
@@ -246,7 +227,7 @@ const inputEl = useTemplateRef('inputEl')
         </div>
 
         <div class="parse result section">
-          <button>Selection: {{ followSelection ? 'on' : 'off' }}</button>
+          <button @click="followSelection = ! followSelection">Selection: {{ followSelection ? 'on' : 'off' }}</button>
           <div v-if="parseResult.isOk" class="parse ok">
             AST: <NodeV
               :node="parseResult.val"

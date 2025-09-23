@@ -88,9 +88,10 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <NodeV v-for="arg of node.args" :node="arg" :selection="selection" :parent="node" class="node-spaced-left" />
     </span>
     <span v-else-if="node.type === 'binOp'">
-      <NodeV :node="node.lhs" :selection="selection" :parent="node" />
-      <NodeV :node="node.op" :selection="selection" :parent="node" class="node-spaced" />
-      <NodeV :node="node.rhs" :selection="selection" :parent="node" />
+      <template v-for="arg, i of node.args">
+        <NodeV :node="arg" :selection="selection" :parent="node" />
+        <NodeV v-if="i < node.args.length - 1" :node="node.ops[i]" :selection="selection" :parent="node" class="node-spaced" />
+      </template>
     </span>
     <span v-else-if="node.type === 'lambdaMulti'">
       <span class="node-sym">\</span>

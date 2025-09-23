@@ -20,7 +20,7 @@ export namespace Check {
 
 export namespace CheckMod {
   export type Ok = {
-    env: TypeSchemeDict
+    typeEnv: TypeSchemeDict
   }
 
   export type Err =
@@ -55,7 +55,7 @@ export const checkMod = (
     .bind(({ env, vars }) =>
       ! isMain || vars.has('main')
         ? Ok({
-          env: pipe(
+          typeEnv: pipe(
             env,
             filterKeys(key => vars.has(key)),
             mapValues(prettify),

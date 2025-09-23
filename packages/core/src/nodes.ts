@@ -4,7 +4,8 @@ import { describeToShow, id } from './utils'
 import { Type } from './types'
 import { Data } from './data'
 import { isSymbol } from './lex'
-import { ApplyExprCurried, LambdaExprCurried } from './parse'
+import { ApplyExprCurried, Fixity, LambdaExprCurried } from './parse'
+import { Result } from 'fk-result'
 
 export type DRange = { range: Range }
 export type DId = { astId: number }
@@ -44,13 +45,10 @@ export type ApplyMultiExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   args: ExprS<D, S>[]
 }
 
-export type Associativity = 'left' | 'right'
-
 export type BinOpExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'binOp'
-  op: VarExpr<D>
-  lhs: ExprS<D, S>
-  rhs: ExprS<D, S>
+  ops: VarExpr<D>[]
+  args: ExprS<D, S>[]
 }
 
 export type RollExpr<D = {}, S extends NodeStage = 'raw'> = D & {
@@ -331,7 +329,9 @@ export namespace Node {
         `(${show(expr.func)} ${show(expr.arg)})`
       )
       .with({ type: 'binOp' }, expr =>
-        `${show(expr.lhs)} ${expr.op.id} ${show(expr.rhs)}`
+        expr.args
+          .map((arg, i) => `${show(arg)}${ i < expr.args.length - 1 ? ` ${show(expr.ops[i])} ` : ''}`)
+          .join('')
       )
       .with({ type: 'roll' }, expr =>
         `(${expr.times === null ? '' : show(expr.times)}@${show(expr.sides)})`
@@ -410,9 +410,8 @@ export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & D
         newNode.args = newNode.args.map(traverse<ExprType>)
         break
       case 'binOp':
-        newNode.lhs = traverse<ExprType>(newNode.lhs)
-        newNode.op = traverse<'var'>(newNode.op)
-        newNode.rhs = traverse<ExprType>(newNode.rhs)
+        newNode.ops = newNode.ops.map(traverse<'var'>)
+        newNode.args = newNode.args.map(traverse<ExprType>)
         break
       case 'cond':
         newNode.cond = traverse<ExprType>(newNode.cond)
@@ -494,136 +493,4 @@ export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & D
   }
 
   return traverse(node) as NodeH<K, D & DId>
-}
-
-export const ToInternalMap = {
-  num: (expr): NumExpr<{}> => expr,
-  unit: (expr): UnitExpr<{}> => expr,
-  var: (expr): VarExpr<{}> => expr,
-  let: (expr): LetExpr<{}, 'int'> => ({
-    ...expr,
-    bindings: expr.bindings.map(toInternal),
-    body: toInternal(expr.body),
-  }),
-  case: (expr): CaseExpr<{}, 'int'> => ({
-    ...expr,
-    subject: toInternal(expr.subject),
-    branches: expr.branches.map(toInternal),
-  }),
-  cond: (expr): CondExpr<{}, 'int'> => ({
-    ...expr,
-    cond: toInternal(expr.cond),
-    yes: toInternal(expr.yes),
-    no: toInternal(expr.no),
-  }),
-  roll: (expr): ApplyExpr<{}, 'int'> => toInternal(ApplyExprCurried(
-    { type: 'var', id: 'roll' },
-    [expr.times ?? { type: 'num', val: 1 }, expr.sides]
-  )),
-  apply: (expr): ApplyExpr<{}, 'int'> => ({
-    ...expr,
-    func: toInternal(expr.func),
-    arg: toInternal(expr.arg),
-  }),
-  applyMulti: (expr): ExprInt => toInternal(
-    ApplyExprCurried(expr.func, expr.args)
-  ),
-  binding: (expr): Binding<{}, 'int'> => ({
-    ...expr,
-    lhs: toInternal(expr.lhs),
-    rhs: toInternal(expr.rhs),
-  }),
-  caseBranch: (expr): CaseBranch<{}, 'int'> => ({
-    ...expr,
-    pattern: toInternal(expr.pattern),
-    body: toInternal(expr.body),
-  }),
-  lambda: (expr): LambdaExpr<{}, 'int'> => ({
-    ...expr,
-    param: toInternal(expr.param),
-    body: toInternal(expr.body),
-  }),
-  lambdaMulti: (expr): LambdaExpr<{}, 'int'> => toInternal(LambdaExprCurried(
-    expr.params, expr.body
-  )),
-  typeNode: (expr): TypeNode<{}> => expr,
-  ann: (expr): AnnExpr<{}, 'int'> => ({
-    ...expr,
-    expr: toInternal(expr.expr),
-  }),
-  binOp: (expr): ApplyExpr<{}, 'int'> => ({
-    type: 'apply',
-    func: {
-      type: 'apply',
-      func: { type: 'var', id: expr.op.id },
-      arg: toInternal(expr.lhs),
-    },
-    arg: toInternal(expr.rhs),
-  }),
-  lambdaCase: (expr): LambdaExpr<{}, 'int'> => ({
-    type: 'lambda',
-    param: {
-      type: 'pattern',
-      sub: 'var',
-      var: { type: 'var', id: '!subject' },
-    },
-    body: {
-      type: 'case',
-      subject: { type: 'var', id: '!subject' },
-      branches: expr.branches.map(toInternal),
-    }
-  }),
-  list: ({ elems }): ExprInt => toInternal(elems.reduceRight<Expr>(
-    (tail, head) => ApplyExprCurried({ type: 'var', id: '#' }, [head, tail]),
-    { type: 'var', id: '[]' }
-  )),
-  tuple: ({ elems }): ExprInt => toInternal(ApplyExprCurried(
-    { type: 'var', id: `${','.repeat(elems.length - 1)}` },
-    elems,
-  )),
-  pattern: (pattern): PatternInt => match<Pattern, PatternInt>(pattern)
-    .with({ sub: 'con' }, pattern => ({
-      ...pattern,
-      con: toInternal(pattern.con),
-      args: pattern.args.map(toInternal),
-    }))
-    .with({ sub: 'tuple' }, pattern => ({
-      type: 'pattern',
-      sub: 'con',
-      con: { type: 'var', id: `${','.repeat(pattern.elems.length - 1)}` },
-      args: pattern.elems.map(toInternal)
-    }))
-    .with({ sub: 'list' }, pattern => toInternal(pattern.elems.reduceRight<Pattern>(
-      (last, init) => ({
-        type: 'pattern',
-        sub: 'con',
-        con: { type: 'var', id: '#' },
-        args: [init, last],
-      }),
-      ({
-        type: 'pattern',
-        sub: 'con',
-        con: { type: 'var', id: '[]' },
-        args: [],
-      })
-    )))
-    .otherwise(id),
-  def: (def): Def<{}, 'int'> => ({
-    ...def,
-    binding: toInternal(def.binding)
-  }),
-  dataDef: (def): DataDef<{}> => def,
-  mod: (mod): Mod<{}, 'int'> => ({
-    ...mod,
-    defs: mod.defs.map(toInternal),
-  }),
-} satisfies {
-  [K in NodeType]: (expr: Node & { type: K }) => NodeInt
-}
-export type ToInternalMap = typeof ToInternalMap
-
-export type ToInternal<K extends NodeType> = ReturnType<ToInternalMap[K]>
-export const toInternal = <K extends NodeType>(node: Node & { type: K }): ToInternal<K> => {
-  const map = ToInternalMap[node.type] as unknown as (node: Node & { type: K }) => ToInternal<K>
-  return map(node)
 }

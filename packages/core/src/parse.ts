@@ -5,7 +5,7 @@ import { ApplyTypeCurried, ConType, FuncType, Type, uncurryApplyType, VarType } 
 import { unsnoc } from './utils'
 import {
   DRange, DId,
-  NumExpr, TupleExpr, UnitExpr, VarExpr, Expr, ListExpr, ApplyExpr, Associativity, BinOpExpr,
+  NumExpr, TupleExpr, UnitExpr, VarExpr, Expr, ListExpr, ApplyExpr, BinOpExpr,
   CondExpr, Binding, LetExpr, WildcardPattern, NumPattern, UnitPattern, ConPattern, VarPattern,
   CaseBranch, CaseExpr, LambdaExpr, LambdaCaseExpr, AnnExpr, Def, Mod, DataDef, Node, Pattern,
   ApplyMultiExpr, RollExpr,
@@ -121,7 +121,12 @@ export const pIdentifier: P<string> = p.bind(
   )
 )
 
-export const pSymbol = p.join(p.some(p.oneOf(SYMBOL_CHARS)))
+export const pSymbol: P<string> = p.join(p.some(p.oneOf(SYMBOL_CHARS)))
+
+export const pSymbolVar: P<VarExpr<DRange>> = pRanged(p.map(
+  pSymbol,
+  id => ({ type: 'var', id })
+))
 
 export const pTupleExprInner: P<TupleExpr<DRange>> = p.lazy(() => pRanged(p.bind(
   p.sep(pExpr, pSpacedAround(p.char(','))),
@@ -217,83 +222,82 @@ export const pApplyExpr: P<ApplyMultiExpr<DRange>> = pRanged(p.lazy(() => p.map(
     args,
   })
 )))
-export const pApplyExprL = p.alt([pApplyExpr, pRollExprL])
+export const pApplyExprL = p.lazy(() => p.alt([pApplyExpr, pRollExprL, pLetExpr, pCaseExpr]))
 
-export const pBinOp = <T extends Expr<DRange>, E>(
-  ops: string[],
-  associativity: Associativity,
-  base: Parser<T, E>,
-): Parser<Expr<DRange>, E> => p.map(
-    p.ranged(p.seq([
-      base,
-      p.many(p.seq([
-        pSpaced(p.ranged(p.alt(ops.map(p.str)))),
-        pSpaced(base),
-      ])),
-    ])),
-    ({ val: seq }) => (associativity === 'left'
-      ? pipe(seq, ([head, tail]) => tail
-        .reduce<Expr<DRange>>(
-          (lhs, [{ val: op, range: opRange }, rhs]): BinOpExpr<DRange> => ({
-            type: 'binOp',
-            op: { type: 'var', id: op, range: opRange },
-            lhs,
-            rhs,
-            range: Range.outer(lhs.range, rhs.range),
-          }),
-          head
-        )
-      )
-      : pipe(reverseSeq(seq), ([head, tail]) => tail
-        .reduce<Expr<DRange>>(
-          (rhs, [{ val: op, range: opRange }, lhs]): BinOpExpr<DRange> => ({
-            type: 'binOp',
-            op: { type: 'var', id: op, range: opRange },
-            lhs,
-            rhs,
-            range: Range.outer(lhs.range, rhs.range),
-          }),
-          head
-        )
-      )
-    )
+export type Assoc = 'left' | 'right' | 'none'
+export type Fixity = {
+  prec: number
+  assoc: Assoc
+}
+
+export namespace Fixity {
+  export const of = (prec: number, assoc: Assoc): Fixity => ({
+    prec,
+    assoc,
+  })
+
+  export const def = () => of(9, 'left')
+
+  export const show = ({ assoc, prec }: Fixity): string => 
+    `infix${assoc === 'none' ? '' : assoc[0]} ${prec}`
+}
+export type FixityTable = Record<string, Fixity>
+
+export const builtinFixityTable: FixityTable = {
+  '.': Fixity.of(9, 'right'),
+  '^': Fixity.of(8, 'right'),
+  '*': Fixity.of(7, 'left'),
+  '/': Fixity.of(7, 'left'),
+  '%': Fixity.of(7, 'left'),
+  '+': Fixity.of(6, 'left'),
+  '-': Fixity.of(6, 'left'),
+  '++': Fixity.of(5, 'right'),
+  '#': Fixity.of(5, 'right'),
+  '==': Fixity.of(4, 'none'),
+  '!=': Fixity.of(4, 'none'),
+  '<': Fixity.of(4, 'none'),
+  '<=': Fixity.of(4, 'none'),
+  '>': Fixity.of(4, 'none'),
+  '>=': Fixity.of(4, 'none'),
+  '&&': Fixity.of(3, 'right'),
+  '||': Fixity.of(2, 'right'),
+  '|>': Fixity.of(1, 'left'),
+  '$': Fixity.of(0, 'right'),
+}
+
+export const pBinOpExpr: P<BinOpExpr<DRange>> = pRanged(p.map(
+  p.seq([
+    pApplyExprL,
+    p.many(p.seq([pSpacedAround(pSymbolVar), pApplyExprL])),
+  ]),
+  ([head, tail]) => pipe(
+    tail.reduce<{
+      ops: VarExpr<DRange>[],
+      args: Expr<DRange>[]
+    }>(
+      ({ ops, args }, [op, arg]) => ({
+        ops: [...ops, op],
+        args: [...args, arg],
+      }),
+      { ops: [], args: [head] }
+    ),
+    ({ ops, args }) => ({
+      type: 'binOp',
+      ops,
+      args,
+    })
   )
-
-export const pCompExpr: P<Expr<DRange>> = pBinOp(['.'], 'right', pApplyExprL)
-
-export const pMulExpr: P<Expr<DRange>> = pBinOp(['*', '/', '%'], 'left', pCompExpr)
-
-export const pAddExpr: P<Expr<DRange>> = pBinOp(['+', '-'], 'left', pMulExpr)
-
-export const pCatExpr: P<Expr<DRange>> = pBinOp(['++'], 'right', pAddExpr)
-
-export const pRelExpr: P<Expr<DRange>> = pBinOp(['==', '!=', '<=', '>=', '<', '>'], 'left', pCatExpr)
-
-export const pEqExpr: P<Expr<DRange>> = pBinOp(['==', '!='], 'left', pRelExpr)
-
-export const pAndExpr: P<Expr<DRange>> = pBinOp(['&&'], 'left', pEqExpr)
-
-export const pOrExpr: P<Expr<DRange>> = pBinOp(['||'], 'left', pAndExpr)
-
-export const pConsExpr: P<Expr<DRange>> = pBinOp(['#'], 'right', pOrExpr)
-
-export const pPipeExpr: P<Expr<DRange>> = pBinOp(['|>'], 'left', pConsExpr)
-
-export const pDolExpr: P<Expr<DRange>> = pBinOp(['$'], 'right', pPipeExpr)
-
-export const pBinOpExpr = pBinOp
-
-export const pDolExprL = p.lazy(() => p.alt([pLetExpr, pCaseExpr, pDolExpr]))
+))
 
 export const pCondExpr: P<Expr<DRange>> = p.lazy(() => p.map(
   p.seq([
-    pDolExpr,
+    pBinOpExpr,
     p.many(p.map(
       p.seq([
         pSpacedAround(p.char('?')),
-        pDolExprL,
+        pBinOpExpr,
         pSpacedAround(p.char(':')),
-        pDolExprL,
+        pBinOpExpr,
       ]),
       ([, yes, , no]): [Expr<DRange>, Expr<DRange>] => [yes, no]
     ))
