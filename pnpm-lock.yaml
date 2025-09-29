@@ -15,7 +15,7 @@ importers:
         version: 0.4.0
       parsecond:
         specifier: ^0.9.1
-        version: link:../../externals/parsecond
+        version: 0.9.1
       remeda:
         specifier: ^2.32.0
         version: 2.32.0
@@ -62,7 +62,7 @@ importers:
         version: 0.7.0(typescript@5.8.3)(vue@3.5.21(typescript@5.8.3))
       parsecond:
         specifier: ^0.9.1
-        version: link:../../externals/parsecond
+        version: 0.9.1
       typescript:
         specifier: ~5.8.3
         version: 5.8.3
@@ -806,6 +806,9 @@ packages:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
+
+  parsecond@0.9.1:
+    resolution: {integrity: sha512-DFXI05Psou9JzqG7CNl+7eGkZoIeuLJDX2QADCXW/ZZ1LCB5gPv4PEpBYuLaJCu0TXsH6+xQdqsA1/WeY6qXZA==}
 
   path-browserify@1.0.1:
     resolution: {integrity: sha512-b7uo2UCUOYZcnF/3ID0lulOJi/bafxa1xPe7ZPsammBSpjSWQkjNxlt635YGS2MiR9GjvuXCtz2emr3jbsz98g==}
@@ -1616,6 +1619,10 @@ snapshots:
   muggle-string@0.4.1: {}
 
   nanoid@3.3.11: {}
+
+  parsecond@0.9.1:
+    dependencies:
+      fk-result: 0.4.0
 
   path-browserify@1.0.1: {}
 
