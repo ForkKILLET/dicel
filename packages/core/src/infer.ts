@@ -1,9 +1,9 @@
 import { match } from 'ts-pattern'
-import { keys, map, mapValues, omit, pick, pipe, values } from 'remeda'
+import { keys, map, mapValues, mergeAll, omit, pick, pipe, unique, uniqueBy, values, zip } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
 import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, ApplyType, FuncTypeCurried } from './types'
 import { Binding, ExprInt, Node, PatternInt } from './nodes'
-import { the, unionSet, zip3 } from './utils'
+import { DefaultMap, Map, the, Set, zip3, Graph } from './utils'
 
 export type TypeSubst = TypeDict
 export namespace TypeSubst {
@@ -45,6 +45,12 @@ export namespace TypeSubst {
 export type TypeEnv = TypeSchemeDict
 export namespace TypeEnv {
   export const empty = (): TypeEnv => ({})
+}
+
+export type TypedBinding = {
+  binding: Binding<{}, 'int'>
+  env: TypeEnv
+  type: TypeSourced
 }
 
 export const occurs = (typeVar: string, type: Type): boolean => match(type)
@@ -223,24 +229,45 @@ export const collectTypeTypeVars = (type: Type): Set<string> => match(type)
   .with({ sub: 'var' }, ({ id }) => new Set([id]))
   .with({ sub: 'con' }, () => new Set<string>)
   .with({ sub: 'func' }, ({ param, ret }) =>
-    unionSet([collectTypeTypeVars(param), collectTypeTypeVars(ret)])
+    Set.union([collectTypeTypeVars(param), collectTypeTypeVars(ret)])
   )
   .with({ sub: 'apply' }, ({ func, arg }) =>
-    unionSet([collectTypeTypeVars(func), collectTypeTypeVars(arg)])
+    Set.union([collectTypeTypeVars(func), collectTypeTypeVars(arg)])
   )
   .exhaustive()
 
 export const collectTypeSchemeTypeVars = (scheme: TypeScheme): Set<string> =>
   collectTypeTypeVars(scheme.type).difference(scheme.typeParamSet)
 
-export const collectPatternVars = (pattern: PatternInt): string[] => match(pattern)
-  .with({ sub: 'wildcard' }, { sub: 'num' }, { sub: 'unit' }, () => [])
-  .with({ sub: 'var' }, ({ var: { id } }) => [id])
-  .with({ sub: 'con' }, ({ args }) => args.flatMap(collectPatternVars))
+export const collectPatternVars = (pattern: PatternInt): Set<string> => match<PatternInt, Set<string>>(pattern)
+  .with({ sub: 'wildcard' }, { sub: 'num' }, { sub: 'unit' }, () => new Set)
+  .with({ sub: 'var' }, ({ var: { id } }) => new Set([id]))
+  .with({ sub: 'con' }, ({ args }) => Set.union(args.map(collectPatternVars)))
   .exhaustive()
 
-export const generalize = (type: Type, existingVars = new Set<string>): TypeScheme => ({
-  typeParamSet: collectTypeTypeVars(type).difference(existingVars),
+export const collectExprVars = (expr: ExprInt): Set<string> => match<ExprInt, Set<string>>(expr)
+  .with({ type: 'ann' }, ({ expr }) => collectExprVars(expr))
+  .with({ type: 'apply' }, ({ func, arg }) =>
+    Set.union([collectExprVars(func), collectExprVars(arg)])
+  )
+  .with({ type: 'case' }, ({ subject, branches }) =>
+    Set.union([collectExprVars(subject), ...branches.map(({ body }) => collectExprVars(body))])
+  )
+  .with({ type: 'cond' }, ({ cond, yes, no }) =>
+    Set.union([collectExprVars(cond), collectExprVars(yes), collectExprVars(no)])
+  )
+  .with({ type: 'lambda' }, ({ param, body }) =>
+    collectExprVars(body).difference(collectPatternVars(param))
+  )
+  .with({ type: 'let' }, ({ bindings, body }) =>
+    Set.union([ collectExprVars(body), ...bindings.map(({ rhs }) => collectExprVars(rhs)) ])
+      .difference(Set.union(bindings.map(({ lhs }) => collectPatternVars(lhs))))
+  )
+  .with({ type: 'var' }, ({ id }) => new Set([id]))
+  .otherwise(() => new Set)
+
+export const generalize = (type: Type, existingTypeVars = new Set<string>): TypeScheme => ({
+  typeParamSet: collectTypeTypeVars(type).difference(existingTypeVars),
   type,
 })
 
@@ -289,7 +316,7 @@ export namespace InferPattern {
 
 export namespace InferBinding {
   export type Ok = {
-    vars: Set<string>
+    lVars: Set<string>
     env: TypeEnv
     subst: TypeSubst
   }
@@ -297,6 +324,26 @@ export namespace InferBinding {
   export type Err = Infer.Err
   
   export type Res = Result<Ok, Err>
+}
+
+export namespace BindingGroup {
+  export type Comp = {
+    id: number
+    lVars: Set<string>
+  }
+
+
+  export type Group = {
+    id: number
+    typedBindings: TypedBinding[]
+    lVars: string[]
+    envH: TypeEnv
+  }
+
+  export type Ok = {
+    comps: Comp[]
+    groups: Group[]
+  }
 }
 
 export class Infer {
@@ -336,98 +383,139 @@ export class Infer {
         return Result
           .fold(
             argPatterns,
-            the<{ env: TypeEnv, argTypes: Type[] }>({ env: {}, argTypes: [] }),
-            ({ env: envH, argTypes }, argPattern) => this
+            { envH: TypeEnv.empty(), argTypes: Array.of<Type>() },
+            ({ envH, argTypes }, argPattern) => this
               .inferPattern(argPattern, { ...env, ...envH })
               .map(({ env: argEnv, type: argType }) => ({
-                env: { ...envH, ...argEnv },
+                envH: { ...envH, ...argEnv },
                 argTypes: [...argTypes, argType],
               }))
           )
-          .bind(({ env, argTypes }) => {
+          .bind(({ envH, argTypes }) => {
             const funcType = FuncTypeCurried(...argTypes, patternVar)
-            console.log('u1 %s <-> %s @ %s', Type.show(funcType), Type.show(conType), Node.show(pattern))
             return unify(conType, TypeSourced.actualFunc(funcType, pattern))
               .mapErr(Unify.wrapErr)
               .map(subst => ({
-                env: TypeSubst.applySchemeDict(subst)(env),
+                env: TypeSubst.applySchemeDict(subst)(envH),
                 type: TypeSourced.appliedBy(subst)(patternVar),
               }))
           })
       })
       .exhaustive()
-      .map(({ type, ...ok }) => ({
-        ...ok,
+      .map(({ type, env }) => ({
+        env,
         type: TypeSourced.actualPattern(type, pattern)
       }))
+  }
+
+  resolveBindingGroups(
+    typedBindings: TypedBinding[],
+    envH: TypeEnv,
+  ) {
+    const lVars = Set.of(keys(envH))
+    const bindingMap = Map.empty<string, TypedBinding>()
+    const depGraph: Graph.Graph<string> = Map.empty()
+
+    for (const typedBinding of typedBindings) {
+      const { binding, env } = typedBinding
+      for (const lVar of keys(env)) {
+        bindingMap.set(lVar, typedBinding)
+        depGraph.set(lVar, collectExprVars(binding.rhs).intersection(lVars))
+      }
+    }
+
+    const { comps } = Graph.solveSCCs(depGraph)
+
+    return comps
+      .toReversed()
+      .map(({ color, nodes }): BindingGroup.Group => {
+        const lVars = [...nodes]
+        const typedBindings = pipe(
+          lVars,
+          map(lVar => bindingMap.get(lVar)!),
+          unique(),
+        )
+        return {
+          id: color,
+          typedBindings,
+          lVars,
+          envH: pick(envH, lVars),
+        }
+      })
   }
 
   inferBindings(
     bindings: Binding<{}, 'int'>[],
     env: TypeEnv,
-    _node: Node,
+    node: Node,
   ): InferBinding.Res {
-    type PatternAcc = {
-      envH: TypeEnv
-      envHs: TypeEnv[]
-      patternTypes: TypeSourced[]
-    }
-    type InferAcc = {
-      substC: TypeSubst
-      envS: TypeEnv
-    }
-
+    void node
     return Result
       .fold(
         bindings,
-        the<PatternAcc>({ envH: {}, envHs: [], patternTypes: [] }),
-        ({ envH, patternTypes, envHs }, { lhs }) => this
-          .inferPattern(lhs, { ...env, ...envH })
+        { envH: TypeEnv.empty(), typedBindings: Array.of<TypedBinding>() },
+        ({ envH, typedBindings }, binding) => this
+          .inferPattern(binding.lhs, { ...env, ...envH })
           .mapErr(InferPattern.wrapErr)
           .map(({ env: envHi, type: patternType }) => ({
             envH: { ...envH, ...envHi },
-            envHs: [...envHs, envHi],
-            patternTypes: [...patternTypes, patternType],
+            typedBindings: [...typedBindings, { binding, env: envHi, type: patternType }],
           }))
       )
-      .bind(({ envH, envHs, patternTypes }) => Result
-        .fold(
-          zip3(bindings, envHs, patternTypes),
-          the<InferAcc>({ substC: {}, envS: envH }),
-          ({ substC, envS }, [{ rhs }, envHi, patternType]) => this
-            .infer(rhs, { ...env, ...envS })
-            .bind(({ type: valType, subst: valSubst }) =>
-              unify(valType, TypeSourced.appliedBy(valSubst)(patternType))
-                .mapErr(Unify.wrapErr)
-                .map(substU => {
-                  const valSubstC = TypeSubst.compose([substU, valSubst])
-                  const envSi = TypeSubst.applySchemeDict(valSubstC)(envS)
-                  const envGi = pipe(
-                    envSi,
-                    pick(keys(envHi)),
-                    mapValues(({ type }, id) => 
-                      generalize(type, pipe(
-                        envSi,
-                        omit([id]),
-                        values(),
-                        map(collectTypeSchemeTypeVars),
-                        unionSet,
-                      ))
-                    )
-                  )
-                  return {
-                    substC: TypeSubst.compose([valSubstC, substC]),
-                    envS: { ...envSi, ...envGi },
-                  }
-                })
-            )
-        )
-        .map(({ substC, envS }): InferBinding.Ok => ({
-          vars: new Set(keys(envH)),
-          env: envS,
-          subst: substC
-        }))
+      .bind(({ envH, typedBindings }) => {
+        const groups = this.resolveBindingGroups(typedBindings, envH)
+        return Result
+          .fold(
+            groups,
+            { substC: TypeSubst.empty(), envS: envH },
+            ({ substC, envS }, group) => this
+              .inferBindingGroup(group, { ...env, ...envS })
+              .map(({ subst, env: envSi }) => ({
+                substC: TypeSubst.compose([subst, substC]),
+                envS: { ...envS, ...envSi },
+              }))
+          )
+          .map(({ substC, envS }) => ({
+            subst: substC,
+            env: envS,
+            lVars: Set.of(keys(envH)),
+          }))
+      })
+  }
+
+  inferBindingGroup({ typedBindings, lVars, envH }: BindingGroup.Group, env: TypeEnv) {
+    return Result
+      .fold(
+        [...typedBindings],
+        { substC: TypeSubst.empty(), envS: envH },
+        ({ substC, envS }, { binding: { rhs }, env: envHi, type: patternType }) => this
+          .infer(rhs, { ...env, ...envS })
+          .bind(({ type: valType, subst: valSubst }) =>
+            unify(valType, TypeSourced.appliedBy(valSubst)(patternType))
+              .mapErr(Unify.wrapErr)
+              .map(substU => {
+                const valSubstC = TypeSubst.compose([substU, valSubst])
+                const envSi = TypeSubst.applySchemeDict(valSubstC)(envS)
+                const existingTypeVars = pipe(
+                  envSi,
+                  omit(lVars),
+                  values(),
+                  map(collectTypeSchemeTypeVars),
+                  Set.union,
+                )
+                const envGi = pipe(
+                  envSi,
+                  pick(keys(envHi)),
+                  mapValues(({ type }) => generalize(type, existingTypeVars))
+                )
+                return {
+                  substC: TypeSubst.compose([valSubstC, substC]),
+                  envS: { ...envSi, ...envGi },
+                }
+              })
+          )
       )
+      .map(({ substC, envS }) => ({ subst: substC, env: envS }))
   }
 
   infer(expr: ExprInt, env = TypeEnv.empty()): Infer.Res {

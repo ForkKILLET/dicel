@@ -3,7 +3,8 @@ import { match } from 'ts-pattern'
 import {
   NumExpr, UnitExpr, VarExpr, LetExpr, CaseExpr, CondExpr, ApplyExpr, ExprInt, Binding, CaseBranch,
   LambdaExpr, TypeNode, AnnExpr, PatternInt, Def, DataDef, Mod, NodeType, NodeInt, Node, Expr, Pattern,
-  DRange
+  DRange,
+  Decl
 } from './nodes'
 import { Fixity, ApplyExprCurried, LambdaExprCurried } from './parse'
 import { id } from './utils'
@@ -30,6 +31,7 @@ export type DesugarMap = {
   list: ExprInt
   pattern: PatternInt
   def: Def<{}, 'int'>
+  decl: Decl<{}>
   dataDef: DataDef<{}>
   mod: Mod<{}, 'int'>
 }
@@ -210,6 +212,7 @@ export const DesugarImpls: DesugarImpls = {
     ...def,
     binding: env.desugar(def.binding)
   }),
+  decl: (_env, decl): Decl<{}> => decl,
   dataDef: (_env, def): DataDef<{}> => def,
   mod: (env, mod): Mod<{}, 'int'> => ({
     ...mod,

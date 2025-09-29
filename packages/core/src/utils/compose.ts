@@ -1,31 +1,9 @@
 import { entries, filter, fromEntries, pipe } from 'remeda'
 
-export type Func = (...args: any[]) => any
-export type Cmp<T> = (a: T, b: T) => number
-
-export type Endo<T> = (x: T) => T
-
-export type Reverse<T extends any[]> = T extends [infer Head, ...infer Tail]
-  ? [...Reverse<Tail>, Head]
-  : []
-
-export const id = <T>(x: T): T => x
-export const the = id
-
-export type NotEmpty<T> = [T, ...T[]]
-
 export const unsnoc = <T>(arr: T[]): [T[], T] => [
   arr.slice(0, -1),
   arr[arr.length - 1],
 ]
-
-export type Counter = Record<string, number>
-export namespace Counter {
-  export const empty = (): Counter => ({})
-
-  export const inc = (counter: Counter, key: string, by = 1) =>
-    counter[key] = (counter[key] ?? 0) + by
-}
 
 export const filterKeys = <T>(pred: (key: string) => boolean) =>
   (object: Record<string, T>): Record<string, T> => pipe(
@@ -34,8 +12,6 @@ export const filterKeys = <T>(pred: (key: string) => boolean) =>
     filter(([key]) => pred(key)),
     fromEntries(),
   )
-
-export const unionSet = <T>(sets: Set<T>[]): Set<T> => sets.reduce((a, b) => a.union(b), new Set)
 
 export const zip3 = <A, B, C>(as: A[], bs: B[], cs: C[]): [A, B, C][] => {
   const len = Math.min(as.length, bs.length, cs.length)
@@ -46,9 +22,8 @@ export const zip3 = <A, B, C>(as: A[], bs: B[], cs: C[]): [A, B, C][] => {
   return result
 }
 
-export type Signal<T> = [T, (val: T) => void]
-export const setter = <O extends {}, P extends keyof O>(object: O, prop: P) => (val: O[P]) => { object[prop] = val }
-export const signal = <O extends {}, P extends keyof O>(object: O, prop: P): Signal<O[P]> => [ object[prop], setter(object, prop) ]
+export const id = <T>(x: T): T => x
+export const the = id
 
 export const describeToShow = <T, D>(
   describe: (input: T) => D,
@@ -61,3 +36,4 @@ export const describeToShow = <T, D>(
   }
   return (input: T) => _show(null)(describe(input))
 }
+

@@ -1,11 +1,9 @@
 import { Range } from 'parsecond'
 import { match } from 'ts-pattern'
-import { describeToShow, id } from './utils'
+import { describeToShow } from './utils'
 import { Type } from './types'
 import { Data } from './data'
-import { isSymbol } from './lex'
-import { ApplyExprCurried, Fixity, LambdaExprCurried } from './parse'
-import { Result } from 'fk-result'
+import { isSymbolOrComma } from './lex'
 
 export type DRange = { range: Range }
 export type DId = { astId: number }
@@ -182,6 +180,12 @@ export type Def<D = {}, S extends NodeStage = 'raw'> = D & {
   binding: Binding<D, S>
 }
 
+export type Decl<D = {}> = D & {
+  type: 'decl'
+  vars: VarExpr<D>[]
+  ann: TypeNode<D>
+}
+
 export type DataDef<D = {}> = D & {
   type: 'dataDef'
   id: string
@@ -191,6 +195,7 @@ export type DataDef<D = {}> = D & {
 export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'mod'
   defs: Def<D, S>[]
+  decls: Decl<D>[]
   dataDefs: DataDef<D>[]
 }
 
@@ -241,6 +246,7 @@ export type NodeInt<D = {}, S extends NodeStage = 'raw'> =
   | CaseBranch<D>
   | Pattern<D>
   | Def<D>
+  | Decl<D>
   | DataDef<D>
   | Mod<D>
 
@@ -291,7 +297,7 @@ export namespace Node {
   export const is = <const Ts extends NodeType[]>(node: Node, types: Ts): node is Node & { type: Ts[number] } => types.includes(node.type)
 
   export const needsParen = (self: Node, parent: Node | null): boolean => parent !== null && (
-    self.type === 'var' && isSymbol(self.id) && parent.type !== 'binOp' ||
+    self.type === 'var' && isSymbolOrComma(self.id) && parent.type !== 'binOp' ||
     parent.type === 'apply' && (
       self.type === 'lambda' ||
       self.type === 'apply' && self === parent.arg
@@ -341,6 +347,16 @@ export namespace Node {
       )
       .with({ type: 'typeNode' }, type => Type.show(type.val))
       .with({ type: 'def' }, def => show(def.binding))
+      .with({ type: 'decl' }, decl =>
+        `${decl.vars.map(show).join(',')} :: ${show(decl.ann)}`
+      )
+      .with({ type: 'dataDef' }, def =>
+        `data ${[def.id, ...def.data.typeParams].join(' ')} = ${
+          def.data.cons
+            .map(({ id, params }) => `${id}${params.map(param => ` ${Type.show(param)}`).join(' ')}`)
+            .join(' | ')
+        }`
+      )
       .with({ type: 'mod' }, ({ defs }) => defs.map(show).join('\n\n'))
       .with({ type: 'lambdaCase' }, expr =>
         `\case ${expr.branches.map(show).join('; ')}`
@@ -350,13 +366,6 @@ export namespace Node {
       )
       .with({ type: 'tuple' }, expr =>
         `(${expr.elems.map(show).join(', ')})`
-      )
-      .with({ type: 'dataDef' }, def =>
-        `data ${[def.id, ...def.data.typeParams].join(' ')} = ${
-          def.data.cons
-            .map(({ id, params }) => `${id}${params.map(param => ` ${Type.show(param)}`).join(' ')}`)
-            .join(' | ')
-        }`
       )
       .exhaustive(),
     needsParen,
@@ -369,7 +378,6 @@ export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> = {
   var: VarExpr<D>
   pattern: PatternS<D, S>
   typeNode: TypeNode<D>
-  dataDef: DataDef<D>
   let: LetExpr<D>
   case: CaseExpr<D, S>
   cond: CondExpr<D, S>
@@ -382,6 +390,8 @@ export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> = {
   binding: Binding<D, S>
   caseBranch: CaseBranch<D, S>
   def: Def<D, S>
+  decl: Decl<D>
+  dataDef: DataDef<D>
   mod: Mod<D, S>
   roll: RollExpr<D, S>
   binOp: BinOpExpr<D, S>
@@ -482,10 +492,15 @@ export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & D
       case 'def':
         newNode.binding = traverse<'binding'>(newNode.binding)
         break
+      case 'decl':
+        newNode.vars = newNode.vars.map(traverse<'var'>)
+        newNode.ann = traverse<'typeNode'>(newNode.ann)
+        break
       case 'dataDef':
         break
       case 'mod':
         newNode.defs = newNode.defs.map(traverse<'def'>)
+        newNode.decls = newNode.decls.map(traverse<'decl'>)
         newNode.dataDefs = newNode.dataDefs.map(traverse<'dataDef'>)
         break
     }

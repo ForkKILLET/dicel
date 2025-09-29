@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline/promises'
 import { inspect } from 'node:util'
 
-import { parseExpr, execute, check, TypeScheme, Value, toInternal, Node } from '@dicel/core'
+import { parseExpr, execute, check, TypeScheme, Value, desugar, Node, builtinFixityTable } from '@dicel/core'
 
 export const startRepl = () => {
   const rl = createInterface({
@@ -23,7 +23,12 @@ export const startRepl = () => {
     if (process.env.DEBUG) console.log('AST:', expr)
     console.log('Expr: %s', Node.show(expr))
 
-    const exprInt = toInternal(expr)
+    const desugarRes = desugar({ fixityTable: builtinFixityTable }, expr)
+    if (desugarRes.isErr) {
+      console.log('Desugar Error: %o', desugarRes.err)
+      return
+    }
+    const exprInt = desugarRes.val
 
     const checkOutput = check(exprInt)
     if (checkOutput.isErr) {

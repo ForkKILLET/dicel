@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { Node, DRange, DId } from '@dicel/core'
-import NodeV from './NodeV.vue'
 
 defineProps<{
   node: Node<DRange & DId> | null
@@ -8,13 +7,12 @@ defineProps<{
 </script>
 
 <template>
-  <template v-if="node">
-    <span class="node-label">
+  <span class="node-label">
+    <template v-if="node">
       &lt;{{ node.type }}#{{ node.astId }}@{{ node.range.start }}:{{ node.range.end }}&gt;
-    </span>
-    <NodeV :node="node" />
-  </template>
-  <span v-else class="node-label">&lt;null&gt;</span>
+    </template>
+    <template v-else>&lt;null&gt;</template>
+  </span>
 </template>
 
 <style scoped>

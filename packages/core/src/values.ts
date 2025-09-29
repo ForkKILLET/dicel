@@ -1,6 +1,5 @@
 import { match } from 'ts-pattern'
-import { describeToShow, Endo, Func } from './utils'
-import { identity } from 'remeda'
+import { describeToShow, Endo, Func, id } from './utils'
 
 export type NumValue = { tag: 'num', val: number }
 export const NumValue = (val: number): NumValue => ({ tag: 'num', val })
@@ -39,7 +38,7 @@ export type Value =
 export type ValueTag = Value['tag']
 
 export type MappableValue = NumValue | BoolValue | UnitValue | FuncValue
-export type MappableValueJ = number | boolean | null | Func
+export type MappableValueJ = number | boolean | null | Func | ErrValue
 export type MVJ = MappableValueJ
 
 export const FuncValueJ = <T1 extends MVJ, T2 extends MVJ>(
@@ -82,6 +81,7 @@ export namespace Value {
     .when(value => typeof value === 'boolean', BoolValue)
     .when(value => typeof value === 'function', FuncValue)
     .when(value => value === null, UnitValue)
+    .with({ tag: 'err' }, id)
     .run()
 
   export const unwrap = (value: MappableValue): MappableValueJ => match(value)
@@ -104,7 +104,7 @@ export namespace Value {
   }
 
   export const describe = (value: Value): ValueDesc => match<Value, ValueDesc>(value)
-    .with({ tag: 'num' }, { tag: 'unit' }, { tag: 'func' }, value => value)
+    .with({ tag: 'num' }, { tag: 'unit' }, { tag: 'err' }, { tag: 'func' }, value => value)
     .with({ tag: 'con' }, value => match<ConValue, ValueDesc>(value)
       .when(({ id }) => id.includes(','), ({ args }) => ({
         tag: 'tuple',
@@ -120,7 +120,7 @@ export namespace Value {
         args: args.map(describe),
       }))
     )
-    .run()
+    .exhaustive()
 
   export const needsParen = (self: ValueDesc, parent: ValueDesc | null): boolean => parent !== null && (
     parent.tag === 'con' && self.tag === 'con' && self.args.length > 0
@@ -130,7 +130,7 @@ export namespace Value {
     describe,
     (val, show) => match(val)
       .with({ tag: 'num' }, ({ val }) => String(val))
-      .with({ tag: 'unit' }, () => '')
+      .with({ tag: 'unit' }, () => '()')
       .with({ tag: 'func' }, () => 'Func')
       .with({ tag: 'con' }, ({ id, args }) => match(id)
         .with(',', () => `(${args.map(show).join(', ')})`)

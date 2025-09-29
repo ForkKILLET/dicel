@@ -52,12 +52,12 @@ export const checkMod = (
 
   return new Infer()
     .inferBindings(bindings, { ...builtinEnv, ...dataEnv }, mod)
-    .bind(({ env, vars }) =>
-      ! isMain || vars.has('main')
+    .bind(({ env, lVars }) =>
+      ! isMain || lVars.has('main')
         ? Ok({
           typeEnv: pipe(
             env,
-            filterKeys(key => vars.has(key)),
+            filterKeys(key => lVars.has(key)),
             mapValues(prettify),
           )
         })

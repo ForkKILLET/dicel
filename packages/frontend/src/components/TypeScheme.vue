@@ -11,8 +11,13 @@ defineProps<{
   <div class="type-scheme">
     <span v-if="typeScheme.typeParamSet.size">
       <span class="type-scheme-op">∀</span>
-      <span class="type-var" v-for="id of typeScheme.typeParamSet" :key="id">{{ id }}</span>
-      <span class="type-scheme-op">.</span>
+      <span
+        v-for="id, i of typeScheme.typeParamSet"
+        :key="id"
+        class="type-var"
+        :class="{ 'node-spaced-left': i > 0 }"
+      >{{ id }}</span>
+      <span class="type-scheme-op node-spaced-right">.</span>
     </span>
     <Type :type="typeScheme.type" /> 
   </div>
@@ -33,10 +38,5 @@ defineProps<{
 
 .type-scheme-op {
   color: lightcoral;
-  margin-right: 1ch;
-}
-
-.type-var + .type-var {
-  margin-left: 1ch;
 }
 </style>

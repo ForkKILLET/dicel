@@ -1,6 +1,6 @@
 import { fromEntries, map, mapValues, mergeAll, pipe } from 'remeda'
 import { Result } from 'fk-result'
-import { builtinFuncs, builtinOps, builtinVals } from './builtin'
+import { builtinVals } from './builtin'
 import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
 import { collectPatternVars } from './infer'
 import { Data } from './data'
@@ -15,18 +15,18 @@ export namespace ValueEnv {
     (builtin): Ref => ({ value: builtin.value })
   )
 
-  export const resolve = (id: string, env: ValueEnv): Value => {
+  export const resolve = (id: string, env: ValueEnv, expr: ExprInt): Value => {
     if (id in env) return env[id].value
-    throw new Error(`Undefined variable '${id}' (unreachable)`)
+    throw new EvaluateError(`Undefined variable '${id}' (unreachable)`, expr)
   }
 }
 
 export namespace Dice {
-  export const roll = (times: number, sides: number): number => {
+  export const roll = (times: number, sides: number): number | ErrValue => {
     if (! Number.isInteger(times) || times < 1)
-      throw new Error(`Expected times of rolls to be a positive integer, got ${times}`)
+      return ErrValue(`Expected times of rolls to be a positive integer, got ${times}`)
     if (! Number.isInteger(sides) || sides < 1)
-      throw new Error(`Expected sides of rolls to be a positive integer, got ${sides}`)
+      return ErrValue(`Expected sides of rolls to be a positive integer, got ${sides}`)
 
     const results: number[] = []
     let sum = 0
@@ -67,12 +67,12 @@ export const evaluatePattern = (pattern: PatternInt, subject: Value): ValueEnv |
         {}
       )
     default:
-      throw new Error(`Unknown pattern type: ${(pattern as { sub: string }).sub} (unreachable)`)
+      throw new EvaluateError(`Unknown pattern type: ${(pattern as { sub: string }).sub} (unreachable)`, pattern)
   }
 }
 
 export const evaluateBindings = (bindings: Binding<{}, 'int'>[], env: ValueEnv) => {
-  const patternVars = bindings.flatMap(({ lhs }) => collectPatternVars(lhs))
+  const patternVars = bindings.flatMap(({ lhs }) => Array.from(collectPatternVars(lhs)))
   const envI = {
     ...env,
     ...pipe(
@@ -111,10 +111,10 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
         return cond.id === 'True' ? evaluate(expr.yes, env) : evaluate(expr.no, env)
       }
       case 'var':
-        return ValueEnv.resolve(expr.id, env)
+        return ValueEnv.resolve(expr.id, env, expr)
       case 'let': {
         const envP = evaluateBindings(expr.bindings, env)
-        if (envP === null) throw new Error('Non-exhaustive patterns in let binding.')
+        if (envP === null) throw new EvaluateError('Non-exhaustive patterns in let binding.', expr)
         return evaluate(expr.body, envP)
       }
       case 'case': {
@@ -124,7 +124,7 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
           if (! branchEnv) continue
           return evaluate(branch.body, { ...env, ...branchEnv })
         }
-        throw new Error('Non-exhaustive patterns in case.')
+        throw new EvaluateError('Non-exhaustive patterns in case.', expr)
       }
       case 'apply': {
         const func = evaluate(expr.func, env)
@@ -134,7 +134,7 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
       case 'lambda':
         return FuncValue((arg: Value) => {
           const envP = evaluatePattern(expr.param, arg)
-          if (envP === null) throw new Error('Non-exhaustive patterns in param.')
+          if (envP === null) throw new EvaluateError('Non-exhaustive patterns in param.', expr)
           return evaluate(expr.body, {
             ...env,
             ...envP,
@@ -143,7 +143,7 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
       case 'ann':
         return evaluate(expr.expr, env)
       default:
-        throw new Error(`Unknown expr type: ${(expr as { type: string }).type} (unreachable)`)
+        throw new EvaluateError(`Unknown expr type: ${(expr as { type: string }).type} (unreachable)`, expr)
     }
   }
   const val = _eval()
@@ -154,12 +154,16 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
 export const execute = (expr: ExprInt, env: ValueEnv = ValueEnv.global()): Result<Value, EvaluateError> =>
   Result.wrap(() => evaluate(expr, env))
 
-export const executeMod = (mod: Mod<{}, 'int'>): Result<ValueEnv, EvaluateError> => {
+export const executeMod = (mod: Mod<{}, 'int'>): Result<ValueEnv, EvaluateError | Error> => {
   const dataRuntimeEnv = pipe(
     mod.dataDefs,
     map(({ data }) => Data.getValueEnv(data)),
     mergeAll,
   )
   const env = { ...ValueEnv.global(), ...dataRuntimeEnv }
-  return Result.wrap(() => evaluateBindings(mod.defs.map(def => def.binding), env))
+  return Result
+    .wrap<ValueEnv, EvaluateError | Error>(() => evaluateBindings(mod.defs.map(def => def.binding), env))
+    .tapErr(err => {
+      if (! (err instanceof EvaluateError)) console.error(err)
+    })
 }

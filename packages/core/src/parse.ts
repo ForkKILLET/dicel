@@ -13,7 +13,8 @@ import {
   ExprType,
   TuplePattern,
   ListPattern,
-  LambdaMultiExpr
+  LambdaMultiExpr,
+  Decl
 } from './nodes'
 import { isLower, isUpper, SYMBOL_CHARS } from './lex'
 
@@ -37,6 +38,10 @@ declare module 'parsecond' {
   export interface ParserState {
     layout: number[]
   }
+}
+
+export namespace Parse {
+  export type Err = ParseErr | null
 }
 
 export type P<T> = Parser<T, ParseErr | null>
@@ -122,6 +127,7 @@ export const pIdentifier: P<string> = p.bind(
 )
 
 export const pSymbol: P<string> = p.join(p.some(p.oneOf(SYMBOL_CHARS)))
+export const pSymbolOrComma: P<string> = p.alt([pSymbol, p.join(p.some(p.char(',')))])
 
 export const pSymbolVar: P<VarExpr<DRange>> = pRanged(p.map(
   pSymbol,
@@ -139,7 +145,7 @@ export const pTupleExprInner: P<TupleExpr<DRange>> = p.lazy(() => pRanged(p.bind
 
 export const pUnitExprInner: P<UnitExpr<DRange>> = pRanged(p.pure({ type: 'unit' }))
 
-export const pSymbolVarExprInner: P<VarExpr<DRange>> = pRanged(p.map(pSymbol, (id): VarExpr => ({ type: 'var', id })))
+export const pSymbolVarExprInner: P<VarExpr<DRange>> = pRanged(p.map(pSymbolOrComma, (id): VarExpr => ({ type: 'var', id })))
 
 export const pParenExpr: P<Expr<DRange>> = p.parens(
   pSpacedAround(p.alt([
@@ -149,7 +155,6 @@ export const pParenExpr: P<Expr<DRange>> = p.parens(
     pUnitExprInner,
   ]))
 )
-
 
 export const pListExpr: P<ListExpr<DRange>> = p.lazy(() => pRanged(p.map(
   p.brackets(pSpacedAround(p.alt([
@@ -393,10 +398,18 @@ export const pTuplePatternInner: P<TuplePattern<DRange>> = p.lazy(() => pRanged(
 
 export const pParenPattern: P<Pattern<DRange>> = p.lazy(() => p.parens(pSpacedAround(p.alt([
   pTuplePatternInner,
+  pSymbolVarPatternInner,
   pPattern,
 ]))))
 
 export const pVarPattern: P<VarPattern<DRange>> = p.map(pVar, (var_) => ({
+  type: 'pattern',
+  sub: 'var',
+  var: var_,
+  range: var_.range,
+}))
+
+export const pSymbolVarPatternInner: P<VarPattern<DRange>> = p.map(pSymbolVar, (var_) => ({
   type: 'pattern',
   sub: 'var',
   var: var_,
@@ -545,15 +558,14 @@ export const pTermExpr: P<Expr<DRange>> = pRanged(p.alt([
   pCondExpr,
 ]))
 
-export const pAnnExpr: P<AnnExpr<DRange>> = p.map(
-  p.ranged(p.seq([pTermExpr, pSpaced(p.str('::')), pTypeNode(pType)])),
-  ({ val: [expr, , ann], range }): AnnExpr<DRange> => ({
+export const pAnnExpr: P<AnnExpr<DRange>> = pRanged(p.map(
+  p.seq([pTermExpr, pSpaced(p.str('::')), pTypeNode(pType)]),
+  ([expr, , ann]) => ({
     type: 'ann',
     expr,
     ann,
-    range,
   })
-)
+))
 
 export const pExpr: P<Expr<DRange>> = p.alt([
   pAnnExpr,
@@ -565,6 +577,18 @@ export const pDef: P<Def<DRange>> = pRanged(p.map(
   binding => ({ type: 'def', binding })
 ))
 
+export const pDecl: P<Decl<DRange>> = pRanged(p.map(
+  p.seq([
+    p.sep(p.alt([pVar, p.parens(pSymbolVarExprInner)]), pSpacedAround(p.char(','))),
+    pSpacedAround(p.str('::')),
+    pTypeNode(pType),
+  ]),
+  ([vars, , ann]) => ({
+    type: 'decl',
+    vars,
+    ann,
+  })
+))
 
 export const pDataDef: P<DataDef<DRange>> = pRanged(p.lazy(() => p.bind(
   p.seq([
@@ -601,24 +625,15 @@ export const pDataDef: P<DataDef<DRange>> = pRanged(p.lazy(() => p.bind(
   ))
 ))
 
-// export const pClassDef: P<ClassDef> = p.lazy(() => p.map(
-//   p.seq([
-//     p.str('class'),
-//     pSpaced(pTypeNode(pConType)),
-//     pSpaced(p.str('where')),
-//     pBlock(pDef),
-//   ]),
-//   ([]) => {}
-// ))
-
 export const pMod: P<Mod<DRange>> =p.map(
-  p.ranged(pBlock(p.alt([pDataDef, pDef]))),
+  p.ranged(pBlock(p.alt([pDecl, pDef, pDataDef]))),
   ({ val: defs, range }) => pipe(
     defs,
     groupByProp('type'),
-    ({ def: defs = [], dataDef: dataDefs = [] }): Mod<DRange> => ({
+    ({ def: defs = [], dataDef: dataDefs = [], decl: decls = [] }): Mod<DRange> => ({
       type: 'mod',
       defs,
+      decls,
       dataDefs,
       range,
     })
