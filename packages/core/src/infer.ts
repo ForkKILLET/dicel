@@ -201,6 +201,13 @@ export const unify = (lhs: TypeSourced, rhs: TypeSourced): Unify.Res => {
   if (! isHomoPair(pair)) return Err({ type: 'DiffSub', lhs, rhs })
 
   return matchHomoPair<TypeSourced, Unify.Res>(pair)
+    .sub('var', ([lhs, rhs]) =>
+      lhs.id === rhs.id
+        ? Ok({})
+        : lhs.rigid && rhs.rigid
+          ? Err({ type: 'RigidVar', lhs, rhs, var: lhs.id })
+          : Ok(lhs.rigid ? { [rhs.id]: lhs } : { [lhs.id]: rhs })
+    )
     .sub('con', ([lhs, rhs]) => lhs.id === rhs.id
       ? Ok({})
       : Err({ type: 'DiffCon', lhs, rhs })
@@ -214,9 +221,6 @@ export const unify = (lhs: TypeSourced, rhs: TypeSourced): Unify.Res => {
           )
             .map(retSubst => TypeSubst.compose([retSubst, argSubst]))
         )
-    )
-    .sub('var', ([lhs, rhs]) => 
-      Ok(lhs.id === rhs.id ? {} : { [lhs.id]: rhs })
     )
     .sub('apply', ([lhs, rhs]) =>
       unify(TypeSourced.elimApplyFunc(lhs), TypeSourced.elimApplyFunc(rhs))

@@ -89,7 +89,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <NodeV :node="node.func" :selection="selection" :parent="node" />
       <NodeV v-for="arg of node.args" :node="arg" :selection="selection" :parent="node" class="node-spaced-left" />
     </span>
-    <span v-else-if="node.type === 'binOp'">
+    <span v-else-if="node.type === 'infix'">
       <template v-for="arg, i of node.args">
         <NodeV :node="arg" :selection="selection" :parent="node" />
         <NodeV v-if="i < node.args.length - 1" :node="node.ops[i]" :selection="selection" :parent="node" class="node-spaced" />

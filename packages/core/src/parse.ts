@@ -5,7 +5,7 @@ import { ApplyTypeCurried, ConType, FuncType, Type, uncurryApplyType, VarType } 
 import { unsnoc } from './utils'
 import {
   DRange, DId,
-  NumExpr, TupleExpr, UnitExpr, VarExpr, Expr, ListExpr, ApplyExpr, BinOpExpr,
+  NumExpr, TupleExpr, UnitExpr, VarExpr, Expr, ListExpr, ApplyExpr, InfixExpr,
   CondExpr, Binding, LetExpr, WildcardPattern, NumPattern, UnitPattern, ConPattern, VarPattern,
   CaseBranch, CaseExpr, LambdaExpr, LambdaCaseExpr, AnnExpr, Def, Mod, DataDef, Node, Pattern,
   ApplyMultiExpr, RollExpr,
@@ -270,7 +270,7 @@ export const builtinFixityTable: FixityTable = {
   '$': Fixity.of(0, 'right'),
 }
 
-export const pBinOpExpr: P<BinOpExpr<DRange>> = pRanged(p.map(
+export const pInfixExpr: P<InfixExpr<DRange>> = pRanged(p.map(
   p.seq([
     pApplyExprL,
     p.many(p.seq([pSpacedAround(pSymbolVar), pApplyExprL])),
@@ -287,7 +287,7 @@ export const pBinOpExpr: P<BinOpExpr<DRange>> = pRanged(p.map(
       { ops: [], args: [head] }
     ),
     ({ ops, args }) => ({
-      type: 'binOp',
+      type: 'infix',
       ops,
       args,
     })
@@ -296,13 +296,13 @@ export const pBinOpExpr: P<BinOpExpr<DRange>> = pRanged(p.map(
 
 export const pCondExpr: P<Expr<DRange>> = p.lazy(() => p.map(
   p.seq([
-    pBinOpExpr,
+    pInfixExpr,
     p.many(p.map(
       p.seq([
         pSpacedAround(p.char('?')),
-        pBinOpExpr,
+        pInfixExpr,
         pSpacedAround(p.char(':')),
-        pBinOpExpr,
+        pInfixExpr,
       ]),
       ([, yes, , no]): [Expr<DRange>, Expr<DRange>] => [yes, no]
     ))
@@ -524,7 +524,7 @@ export const pApplyType: P<Type> = p.lazy(() => p.map(
 ))
 
 export const pFuncType: P<FuncType> = p.lazy(() => p.map(
-  p.seq([pPrimaryType, pSpacedAround(p.str('->')), pType]),
+  p.seq([p.alt([pApplyType, pPrimaryType]), pSpacedAround(p.str('->')), pType]),
   ([param, , ret]) => FuncType(param, ret)
 ))
 

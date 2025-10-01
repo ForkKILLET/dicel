@@ -27,7 +27,7 @@ export type DesugarMap = {
   lambdaMulti: LambdaExpr<{}, 'int'>
   typeNode: TypeNode<{}>
   ann: AnnExpr<{}, 'int'>
-  binOp: ExprInt
+  infix: ExprInt
   lambdaCase: LambdaExpr<{}, 'int'>
   tuple: ExprInt
   list: ExprInt
@@ -108,7 +108,7 @@ export const DesugarImpls: DesugarImpls = {
     ...expr,
     expr: env.desugar(expr.expr),
   }),
-  binOp: (env, expr): ExprInt => {
+  infix: (env, expr): ExprInt => {
     const getFixity = (op: string): Fixity => env.fixityTable[op] ?? Fixity.def()
 
     const ops = expr.ops.map(op => op.id)

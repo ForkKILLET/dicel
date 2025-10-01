@@ -44,10 +44,22 @@ export type ApplyMultiExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   args: ExprS<D, S>[]
 }
 
-export type BinOpExpr<D = {}, S extends NodeStage = 'raw'> = D & {
-  type: 'binOp'
+export type InfixExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'infix'
   ops: VarExpr<D>[]
   args: ExprS<D, S>[]
+}
+
+export type SectionLExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'sectionL'
+  op: VarExpr<D>
+  arg: ExprS<D, S>
+}
+
+export type SectionRExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'sectionR'
+  arg: ExprS<D, S>
+  op: VarExpr<D>
 }
 
 export type RollExpr<D = {}, S extends NodeStage = 'raw'> = D & {
@@ -231,7 +243,7 @@ export type ExprInt<D = {}, S extends NodeStage = 'int'> =
 
 export type ExprExt<D = {}> =
   | RollExpr<D>
-  | BinOpExpr<D>
+  | InfixExpr<D>
   | ApplyMultiExpr<D>
   | LambdaMultiExpr<D>
   | LambdaCaseExpr<D>
@@ -307,7 +319,7 @@ export namespace Node {
   export const is = <const Ts extends NodeType[]>(node: Node, types: Ts): node is Node & { type: Ts[number] } => types.includes(node.type)
 
   export const needsParen = (self: Node, parent: Node | null): boolean => parent !== null && (
-    self.type === 'var' && isSymbolOrComma(self.id) && parent.type !== 'binOp' ||
+    self.type === 'var' && isSymbolOrComma(self.id) && parent.type !== 'infix' ||
     parent.type === 'apply' && (
       self.type === 'lambda' ||
       self.type === 'apply' && self === parent.arg
@@ -344,7 +356,7 @@ export namespace Node {
       .with({ type: 'apply' }, expr =>
         `(${show(expr.func)} ${show(expr.arg)})`
       )
-      .with({ type: 'binOp' }, expr =>
+      .with({ type: 'infix' }, expr =>
         expr.args
           .map((arg, i) => `${show(arg)}${ i < expr.args.length - 1 ? ` ${show(expr.ops[i])} ` : ''}`)
           .join('')
@@ -408,7 +420,7 @@ export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> = {
   dataDef: DataDef<D>
   mod: Mod<D, S>
   roll: RollExpr<D, S>
-  binOp: BinOpExpr<D, S>
+  infix: InfixExpr<D, S>
   list: ListExpr<D, S>
   tuple: TupleExpr<D, S>
 }[K]
@@ -433,7 +445,7 @@ export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & D
         newNode.func = traverse<ExprType>(newNode.func)
         newNode.args = newNode.args.map(traverse<ExprType>)
         break
-      case 'binOp':
+      case 'infix':
         newNode.ops = newNode.ops.map(traverse<'var'>)
         newNode.args = newNode.args.map(traverse<ExprType>)
         break
