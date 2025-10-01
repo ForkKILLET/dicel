@@ -30,9 +30,7 @@ const withParen = computed(() => Pattern.needsParen(props.node, props.parent))
     <span v-else-if="node.sub === 'num'">
       <span class="node-lit">{{ node.val }}</span>
     </span>
-    <span v-else-if="node.sub === 'unit'">
-      <span class="node-con">()</span>
-    </span>
+    <span v-else-if="node.sub === 'unit'">()</span>
     <span v-else-if="node.sub === 'con'">
       <NodeV :node="node.con" :selection="selection" :parent="node" />
       <template v-for="arg of node.args">

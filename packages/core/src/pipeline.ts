@@ -5,7 +5,7 @@ import { EvaluateError, executeMod, ValueEnv } from './execute'
 import { TypeEnv } from './infer'
 import { Value } from './values'
 import { Mod } from './nodes'
-import { Desugar, desugar } from './desugar'
+import { Desugar, desugar, desugarMod } from './desugar'
 import { Last } from './utils'
 
 export namespace Pipeline {
@@ -136,7 +136,7 @@ export namespace Pipeline {
         .mapErr(err => ({ ...state, parse: false, err })),
 
     desugar: (state) =>
-      desugar({ fixityTable: builtinFixityTable }, state.mod)
+      desugarMod(state.mod)
         .map(modInt => ({ ...state, desugar: true, modInt }))
         .mapErr(err => ({ ...state, desugar: false, err })),
 

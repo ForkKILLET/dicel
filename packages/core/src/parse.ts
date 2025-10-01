@@ -14,9 +14,10 @@ import {
   TuplePattern,
   ListPattern,
   LambdaMultiExpr,
-  Decl
+  Decl,
+  FixityDecl
 } from './nodes'
-import { isLower, isUpper, SYMBOL_CHARS } from './lex'
+import { isLower, isUpper, RESERVE_WORDS, SYMBOL_CHARS } from './lex'
 
 declare module 'parsecond' {
   export interface ParseErrMap {
@@ -117,7 +118,6 @@ export const pNum: P<NumExpr<DRange>> = pRanged(p.map(p.decimal, val => ({
   val,
 })))
 
-export const RESERVE_WORDS = [ 'let', 'in', 'case', 'of', 'data', 'class', 'where' ]
 export const pIdentifier: P<string> = p.bind(
   p.notEmpty(p.regex(/[A-Za-z][A-Za-z\d']*|_[A-Za-z\d']+/)),
   id => p.result(RESERVE_WORDS.includes(id)
@@ -504,10 +504,7 @@ export const pLambdaCaseExpr: P<LambdaCaseExpr<DRange>> = p.lazy(() => pRanged(p
 
 export const pConType: P<ConType> = p.map(
   p.guard(pIdentifier, id => isUpper(id[0])),
-  (id): ConType => ({
-    sub: 'con',
-    id,
-  })
+  id => ({ sub: 'con', id })
 )
 
 export const pParenType: P<Type> = p.lazy(() => p.parens(pType))
@@ -521,13 +518,13 @@ export const pPrimaryType: P<Type> = p.lazy(() => p.alt([
 export const pApplyType: P<Type> = p.lazy(() => p.map(
   p.seq([
     p.alt([pConType, pVarType]),
-    p.some(pSpaced(p.alt([pFuncType, pPrimaryType]))),
+    p.some(pSpaced(pPrimaryType)),
   ]),
   ([func, args]) => ApplyTypeCurried(func, ...args)
 ))
 
 export const pFuncType: P<FuncType> = p.lazy(() => p.map(
-  p.seq([pPrimaryType, pSpaced(p.str('->')), pType]),
+  p.seq([pPrimaryType, pSpacedAround(p.str('->')), pType]),
   ([param, , ret]) => FuncType(param, ret)
 ))
 
@@ -590,6 +587,21 @@ export const pDecl: P<Decl<DRange>> = pRanged(p.map(
   })
 ))
 
+export const pFixityDecl: P<FixityDecl<DRange>> = pRanged(p.map(
+  p.seq([
+    p.str('infix'),
+    p.opt(p.oneOf('lr')),
+    pSpaced(p.posint),
+    pSpaced(p.sep(pSymbolVar, pSpacedAround(p.char(',')))),
+  ]),
+  ([, assocChar, prec, vars]) => ({
+    type: 'fixityDecl',
+    assoc: assocChar === 'l' ? 'left' : assocChar === 'r' ? 'right' : 'none',
+    prec,
+    vars,
+  })
+))
+
 export const pDataDef: P<DataDef<DRange>> = pRanged(p.lazy(() => p.bind(
   p.seq([
     p.str('data'),
@@ -626,14 +638,15 @@ export const pDataDef: P<DataDef<DRange>> = pRanged(p.lazy(() => p.bind(
 ))
 
 export const pMod: P<Mod<DRange>> =p.map(
-  p.ranged(pBlock(p.alt([pDecl, pDef, pDataDef]))),
+  p.ranged(pBlock(p.alt([pFixityDecl, pDecl, pDef, pDataDef]))),
   ({ val: defs, range }) => pipe(
     defs,
     groupByProp('type'),
-    ({ def: defs = [], dataDef: dataDefs = [], decl: decls = [] }): Mod<DRange> => ({
+    ({ def: defs = [], dataDef: dataDefs = [], fixityDecl: fixityDecls = [], decl: decls = [] }): Mod<DRange> => ({
       type: 'mod',
       defs,
       decls,
+      fixityDecls,
       dataDefs,
       range,
     })

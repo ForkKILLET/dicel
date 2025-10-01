@@ -4,6 +4,7 @@ import { describeToShow } from './utils'
 import { Type } from './types'
 import { Data } from './data'
 import { isSymbolOrComma } from './lex'
+import { Fixity } from './parse'
 
 export type DRange = { range: Range }
 export type DId = { astId: number }
@@ -186,6 +187,13 @@ export type Decl<D = {}> = D & {
   ann: TypeNode<D>
 }
 
+export type FixityDecl<D = {}> = D & {
+  type: 'fixityDecl'
+  vars: VarExpr<D>[]
+  prec: number
+  assoc: 'left' | 'right' | 'none'
+}
+
 export type DataDef<D = {}> = D & {
   type: 'dataDef'
   id: string
@@ -196,6 +204,7 @@ export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'mod'
   defs: Def<D, S>[]
   decls: Decl<D>[]
+  fixityDecls: FixityDecl<D>[]
   dataDefs: DataDef<D>[]
 }
 
@@ -247,6 +256,7 @@ export type NodeInt<D = {}, S extends NodeStage = 'raw'> =
   | Pattern<D>
   | Def<D>
   | Decl<D>
+  | FixityDecl<D>
   | DataDef<D>
   | Mod<D>
 
@@ -350,6 +360,9 @@ export namespace Node {
       .with({ type: 'decl' }, decl =>
         `${decl.vars.map(show).join(',')} :: ${show(decl.ann)}`
       )
+      .with({ type: 'fixityDecl' }, decl =>
+        `${Fixity.show(decl)} ${decl.vars.map(show).join(', ')}`
+      )
       .with({ type: 'dataDef' }, def =>
         `data ${[def.id, ...def.data.typeParams].join(' ')} = ${
           def.data.cons
@@ -391,6 +404,7 @@ export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> = {
   caseBranch: CaseBranch<D, S>
   def: Def<D, S>
   decl: Decl<D>
+  fixityDecl: FixityDecl<D>
   dataDef: DataDef<D>
   mod: Mod<D, S>
   roll: RollExpr<D, S>
@@ -496,11 +510,15 @@ export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & D
         newNode.vars = newNode.vars.map(traverse<'var'>)
         newNode.ann = traverse<'typeNode'>(newNode.ann)
         break
+      case 'fixityDecl':
+        newNode.vars = newNode.vars.map(traverse<'var'>)
+        break
       case 'dataDef':
         break
       case 'mod':
         newNode.defs = newNode.defs.map(traverse<'def'>)
         newNode.decls = newNode.decls.map(traverse<'decl'>)
+        newNode.fixityDecls = newNode.fixityDecls.map(traverse<'fixityDecl'>)
         newNode.dataDefs = newNode.dataDefs.map(traverse<'dataDef'>)
         break
     }

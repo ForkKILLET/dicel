@@ -54,29 +54,33 @@ onMounted(() => {
 const followSelection = ref(false)
 const inputEl = useTemplateRef('inputEl')
 
-const passesEl = useTemplateRef('passesEl')
+const leftEl = useTemplateRef('leftEl')
+const rightEl = useTemplateRef('rightEl')
 </script>
 
 <template>
   <div class="root">
-    <main ref="passesEl">
-      <div class="section">
-        <button @click="followSelection = ! followSelection">Selection: {{ followSelection ? 'on' : 'off' }}</button>
-        <textarea class="code" v-model="source" spellcheck="false" ref="inputEl"></textarea>
+    <main>
+      <div class="col" ref="leftEl">
+        <div class="section">
+          <button @click="followSelection = ! followSelection">Selection: {{ followSelection ? 'on' : 'off' }}</button>
+          <textarea class="code" v-model="source" spellcheck="false" ref="inputEl"></textarea>
+        </div>
       </div>
+      <div class="col" ref="rightEl"></div>
     </main>
 
     <template v-if="result">
-      <Teleport :to="passesEl">
+      <Teleport :to="leftEl">
         <template v-if="result.parse">
           <ParseOk :result="result" :selection="selection" />
-          <Teleport :to="passesEl">
+          <Teleport :to="leftEl">
             <template v-if="result.desugar">
               <DesugarOk :result="result" />
-              <Teleport :to="passesEl">
+              <Teleport :to="leftEl">
                 <template v-if="result.check" >
                   <CheckOk :result="result" />
-                  <Teleport :to="passesEl">
+                  <Teleport :to="rightEl">
                     <ExecuteResult :result="result" :runner="runner" :runner-cache="runnerCache" />
                   </Teleport>
                 </template>
@@ -91,7 +95,11 @@ const passesEl = useTemplateRef('passesEl')
     </template>
 
     <footer>
-      <a href="https://github.com/ForkKILLET/Dicel">Dicel</a> made by <a href="https://github.com/ForkKILLET" target="_blank">ForkKILLET</a> with &gt;_&lt;
+      <p>
+        <a href="https://github.com/ForkKILLET/Dicel">Dicel</a>
+        made by <a href="https://github.com/ForkKILLET" target="_blank">ForkKILLET</a>
+        with &gt;_&lt;
+      </p>
     </footer>
   </div>
 </template>
@@ -108,15 +116,32 @@ const passesEl = useTemplateRef('passesEl')
 
 main {
   display: flex;
+  gap: 1em;
   box-sizing: border-box;
   padding: 1em;
-  flex-direction: column;
-  height: 100%;
-  flex-wrap: wrap;
+  height: calc(100% - 1em);
 }
 
-main > * {
-  width: calc(50% - 1em);
+footer {
+  position: fixed;
+  height: 2em;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  bottom: 0;
+}
+
+footer .logo {
+  height: 2em;
+}
+
+.col {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
 }
 
 .super-section {
@@ -156,13 +181,6 @@ main > * {
 .section.err .badge {
   background-color: lightcoral;
   color: black;
-}
-
-footer {
-  position: fixed;
-  bottom: 0;
-  width: 100%;
-  text-align: center;
 }
 
 .err {
@@ -269,5 +287,4 @@ pre {
 .dis-bar-err .dis-bar-bar, .dis-bar-err .dis-bar-val {
   fill: lightcoral;
 }
-
 </style>

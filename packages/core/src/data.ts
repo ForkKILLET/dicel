@@ -21,7 +21,7 @@ export type DataEnv = Record<string, Data>
 
 export namespace Data {
   export const getType = (id: string, { typeParams }: Data, { params }: DataCon) =>
-    FuncTypeCurried(...params, ApplyTypeCurried(ConType(id), ...typeParams.map(VarType)))
+    FuncTypeCurried(...params, ApplyTypeCurried(ConType(id), ...typeParams.map(id => VarType(id))))
 
   export const getValue = ({ id, params }: DataCon) =>
     FuncValueN(params.length)((...vals) => ConValue(id, vals))

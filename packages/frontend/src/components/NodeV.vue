@@ -32,9 +32,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
     <span v-if="node.type === 'num'">
       <span class="node-lit">{{ node.val }}</span>
     </span>
-    <span v-else-if="node.type === 'unit'">
-      <span class="node-con">()</span>
-    </span>
+    <span v-else-if="node.type === 'unit'">()</span>
     <span v-else-if="node.type === 'var'">
       <span :class="isSymbol(node.id) ? 'node-op' : isUpper(node.id[0]) ? 'node-con' : 'node-var'">{{ node.id }}</span>
     </span>
@@ -146,6 +144,14 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <span class="node-sym node-spaced">::</span>
       <NodeV :node="node.ann" :selection="selection" :parent="node" />
     </span>
+    <span v-else-if="node.type === 'fixityDecl'">
+      <span class="node-kw node-spaced-right">infix{{ node.assoc === 'left' ? 'l' : node.assoc === 'right' ? 'r' : '' }}</span>
+      <span class="node-lit node-spaced-right">{{ node.prec }}</span>
+      <template v-for="var_, i of node.vars">
+        <NodeV :node="var_" :selection="selection" :parent="node" />
+        <span v-if="i < node.vars.length - 1" class="node-spaced-right">,</span>
+      </template>
+    </span>
     <span v-else-if="node.type === 'dataDef'">
       <span class="node-kw node-spaced-right">data</span>
       <span class="node-con">{{ node.id }}</span>
@@ -160,16 +166,20 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       </template>
     </span>
     <span v-else-if="node.type === 'mod'">
-      <div v-for="dataDef, i of node.dataDefs" :key="i">
+      <div v-for="dataDef of node.dataDefs">
         <NodeV :node="dataDef" :selection="selection" :parent="node" />
       </div>
 
-      <div v-for="decl, i of node.decls" :key="i">
+      <div v-for="decl of node.decls">
         <NodeV :node="decl" :selection="selection" :parent="node" />
       </div>
 
-      <div v-for="def, i of node.defs" :key="i">
+      <div v-for="def of node.defs">
         <NodeV :node="def" :selection="selection" :parent="node" />
+      </div>
+
+      <div v-for="fixityDecl of node.fixityDecls">
+        <NodeV :node="fixityDecl" :selection="selection" :parent="node" />
       </div>
     </span>
     <span v-if="withParen">)</span>

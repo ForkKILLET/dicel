@@ -4,10 +4,12 @@ import {
   NumExpr, UnitExpr, VarExpr, LetExpr, CaseExpr, CondExpr, ApplyExpr, ExprInt, Binding, CaseBranch,
   LambdaExpr, TypeNode, AnnExpr, PatternInt, Def, DataDef, Mod, NodeType, NodeInt, Node, Expr, Pattern,
   DRange,
-  Decl
+  Decl,
+  FixityDecl
 } from './nodes'
-import { Fixity, ApplyExprCurried, LambdaExprCurried } from './parse'
+import { Fixity, ApplyExprCurried, LambdaExprCurried, builtinFixityTable } from './parse'
 import { id } from './utils'
+import { flatMap, fromEntries, pipe } from 'remeda'
 
 export type DesugarMap = {
   num: NumExpr<{}>
@@ -32,6 +34,7 @@ export type DesugarMap = {
   pattern: PatternInt
   def: Def<{}, 'int'>
   decl: Decl<{}>
+  fixityDecl: FixityDecl<{}>
   dataDef: DataDef<{}>
   mod: Mod<{}, 'int'>
 }
@@ -213,6 +216,7 @@ export const DesugarImpls: DesugarImpls = {
     binding: env.desugar(def.binding)
   }),
   decl: (_env, decl): Decl<{}> => decl,
+  fixityDecl: (_env, decl): FixityDecl<{}> => decl,
   dataDef: (_env, def): DataDef<{}> => def,
   mod: (env, mod): Mod<{}, 'int'> => ({
     ...mod,
@@ -229,6 +233,12 @@ export namespace Desugar {
   export type Res<K extends NodeType> = Result<Ok<K>, Err>
 }
 
+export const collectFixities = (mod: Mod): Record<string, Fixity> => pipe(
+  mod.fixityDecls,
+  flatMap(decl => decl.vars.map(({ id }) => [id, decl] as const)),
+  fromEntries(),
+)
+
 export const desugar = <K extends NodeType>(input: DesugarInput, node: Extract<Node, { type: K }>): Desugar.Res<K> => {
   const env: DesugarEnv = {
     ...input,
@@ -237,4 +247,11 @@ export const desugar = <K extends NodeType>(input: DesugarInput, node: Extract<N
     panic: (err: Desugar.Err) => { throw err }
   }
   return Result.wrap<Desugar.Ok<K>, Desugar.Err>(() => env.desugar(node))
+}
+
+export const desugarMod = (mod: Mod): Desugar.Res<'mod'> => {
+  return desugar(
+    { fixityTable: { ...builtinFixityTable, ...collectFixities(mod) } },
+    mod
+  )
 }

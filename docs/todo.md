@@ -7,11 +7,20 @@
 - (v) lambda case
 - (v) custom ADT
 - (v) dicel IR => Node Stage
+- (v) binding groups
 
-- ( ) sections
-- ( ) custom operator & fixity
+- ( ) comment
+
+- (.) operator enhancements
+  - (v) custom operators
+  - (v) fixity parsing
+  - (v) custom fixity
+  - ( ) sections
 
 - (.) modules
+  - (v) top level definitions
+  - (v) declarations
+  - ( ) imports
 
 - ( ) type class
 - ( ) more builtins => stdlib
@@ -21,5 +30,8 @@
 - ( ) lazy
 
 - ( ) better errors
+  - ( ) better parse errors
+  - ( ) better check errors
 
-- ( ) compile to WASM
+- ( ) compile to ...
+  - ( ) WASM

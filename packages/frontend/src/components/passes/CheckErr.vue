@@ -19,8 +19,9 @@ defineProps<{
           <div class="check-err-block"><TypeSourced :type="err.err.rhs" /></div>
         because {{
           err.err.type === 'Recursion' ? 'of recursion' :
-          err.err.type === 'DiffSub' ? 'they are of different kinds' :
+          err.err.type === 'DiffSub' ? 'they are of different shapes' :
           err.err.type === 'DiffCon' ? 'they are different constructors' :
+          err.err.type === 'RigidVar' ? `the variable '${err.err.var}' is rigid` :
           'of unknown reasons'
         }}.
       </template>

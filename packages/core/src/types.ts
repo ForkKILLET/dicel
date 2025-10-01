@@ -33,10 +33,12 @@ export const ApplyTypeCurried = (...[head, ...tail]: Type[]): Type => tail.lengt
 export type VarType ={
   sub: 'var'
   id: string
+  rigid?: boolean
 }
-export const VarType = (id: string): VarType => ({
+export const VarType = (id: string, rigid?: boolean): VarType => ({
   sub: 'var',
   id,
+  rigid,
 })
 
 export type FuncType = {
@@ -76,7 +78,7 @@ export const uncurryFuncType = (type: FuncType): Type[] => type.ret.sub === 'fun
 
 export type TypeDesc =
   | { sub: 'con', id: string }
-  | { sub: 'var', id: string }
+  | { sub: 'var', id: string, rigid?: boolean }
   | { sub: 'apply', args: TypeDesc[] }
   | { sub: 'tuple', args: TypeDesc[] }
   | { sub: 'func', args: TypeDesc[] }
@@ -123,7 +125,8 @@ export namespace Type {
   export const show = describeToShow(
     describe,
     (desc, show) => match<TypeDesc, string>(desc)
-      .with({ sub: 'con' }, { sub: 'var' }, type => type.id)
+      .with({ sub: 'con' }, type => type.id)
+      .with({ sub: 'var' }, type => `${type.rigid ? '^' : ''}${type.id}`)
       .with({ sub: 'func' }, ({ args }) => args.map(show).join(' -> '))
       .with({ sub: 'apply' }, ({ args }) => `${args.map(show).join(' ')}`)
       .with({ sub: 'tuple' }, ({ args }) => `(${args.map(show).join(', ')})`)

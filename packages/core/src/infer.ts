@@ -1,9 +1,9 @@
 import { match } from 'ts-pattern'
-import { keys, map, mapValues, mergeAll, omit, pick, pipe, unique, uniqueBy, values, zip } from 'remeda'
+import { flatMap, keys, map, mapValues, omit, pick, pipe, unique, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
 import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, ApplyType, FuncTypeCurried } from './types'
-import { Binding, ExprInt, Node, PatternInt } from './nodes'
-import { DefaultMap, Map, the, Set, zip3, Graph } from './utils'
+import { Binding, Decl, ExprInt, Node, PatternInt } from './nodes'
+import { Map, the, Set, Graph } from './utils'
 
 export type TypeSubst = TypeDict
 export namespace TypeSubst {
@@ -69,10 +69,13 @@ export type TypeSource =
   | { type: 'actual.Func', funcNode: ExprInt | PatternInt }
   | { type: 'actual.Pattern', pattern: PatternInt }
   | { type: 'infer.Func.ret', funcNode: ExprInt | PatternInt }
+  | { type: 'infer.Binding.var', varId: string, bindingNode: Node }
   | { type: 'infer.Binding.val', valExpr: ExprInt, bindingNode: Node }
   | { type: 'infer.Case', caseExpr: ExprInt }
   | { type: 'infer.Lambda.param', lambdaExpr: ExprInt }
   | { type: 'expect.Cond', condExpr: ExprInt }
+  | { type: 'ann.Ann', annExpr: ExprInt }
+  | { type: 'ann.Decl', declNode: Decl, varId: string }
   | { type: 'elim.Func.param', from: TypeSourced }
   | { type: 'elim.Func.ret', from: TypeSourced }
   | { type: 'elim.Apply.func', from: TypeSourced }
@@ -100,6 +103,11 @@ export namespace TypeSourced {
     source: { type: 'infer.Func.ret', funcNode },
   })
 
+  export const inferBindingVar = <T extends Type>(type: T, varId: string, bindingNode: Node): TypeSourced<T> => ({
+    ...type,
+    source: { type: 'infer.Binding.var', varId, bindingNode },
+  })
+
   export const inferBindingVal = <T extends Type>(type: T, valExpr: ExprInt, bindingNode: Node): TypeSourced<T> => ({
     ...type,
     source: { type: 'infer.Binding.val', valExpr, bindingNode },
@@ -118,6 +126,16 @@ export namespace TypeSourced {
   export const expectCond = <T extends Type>(type: T, condExpr: ExprInt): TypeSourced<T> => ({
     ...type,
     source: { type: 'expect.Cond', condExpr },
+  })
+
+  export const annAnn = <T extends Type>(type: T, annExpr: ExprInt): TypeSourced<T> => ({
+    ...type,
+    source: { type: 'ann.Ann', annExpr },
+  })
+
+  export const annDecl = <T extends Type>(type: T, declNode: Decl, varId: string): TypeSourced<T> => ({
+    ...type,
+    source: { type: 'ann.Decl', declNode, varId },
   })
 
   export const elimFuncParam = (from: TypeSourced<FuncType>): TypeSourced => ({
@@ -155,6 +173,7 @@ export namespace Unify {
     | { type: 'Recursion' }
     | { type: 'DiffSub' }
     | { type: 'DiffCon' }
+    | { type: 'RigidVar', var: string }
 
   export type Err = ErrDetail & {
     lhs: TypeSourced
@@ -169,9 +188,12 @@ export namespace Unify {
 }
 
 export const unify = (lhs: TypeSourced, rhs: TypeSourced): Unify.Res => {
+  console.log(`unify %s ≡ %s`, Type.show(lhs), Type.show(rhs))
+
   if (lhs.sub !== 'var' && rhs.sub === 'var') [lhs, rhs] = [rhs, lhs]
   if (lhs.sub === 'var' && rhs.sub !== 'var') {
     if (occurs(lhs.id, rhs)) return Err({ type: 'Recursion', lhs, rhs })
+    if (lhs.rigid) return Err({ type: 'RigidVar', lhs, rhs, var: lhs.id })
     return Ok({ [lhs.id]: rhs })
   }
 
@@ -214,16 +236,19 @@ export class TypeVarState {
 
   private counter = 0
 
-  fresh() {
-    return VarType(`${this.prefix}${this.counter++}`)
+  fresh(rigid?: boolean) {
+    return VarType(`${this.prefix}${this.counter++}`, rigid)
   }
 
-  instantiate(scheme: TypeScheme): Type {
-    const subst = TypeSubst.compose([...scheme.typeParamSet].map(id => ({ [id]: this.fresh() })))
+  instantiate(scheme: TypeScheme, rigid?: boolean): Type {
+    const subst = TypeSubst.compose([...scheme.typeParamSet].map(id => ({ [id]: this.fresh(rigid) })))
     return TypeSubst.apply(subst)(scheme.type)
   }
-}
 
+  skolemize(type: Type): Type {
+    return this.instantiate(generalize(type), true)
+  }
+}
 
 export const collectTypeTypeVars = (type: Type): Set<string> => match(type)
   .with({ sub: 'var' }, ({ id }) => new Set([id]))
@@ -316,7 +341,7 @@ export namespace InferPattern {
 
 export namespace InferBinding {
   export type Ok = {
-    lVars: Set<string>
+    varIds: Set<string>
     env: TypeEnv
     subst: TypeSubst
   }
@@ -329,15 +354,14 @@ export namespace InferBinding {
 export namespace BindingGroup {
   export type Comp = {
     id: number
-    lVars: Set<string>
+    varIds: Set<string>
   }
 
 
   export type Group = {
     id: number
     typedBindings: TypedBinding[]
-    lVars: string[]
-    envH: TypeEnv
+    varIds: string[]
   }
 
   export type Ok = {
@@ -412,15 +436,15 @@ export class Infer {
     typedBindings: TypedBinding[],
     envH: TypeEnv,
   ) {
-    const lVars = Set.of(keys(envH))
+    const varIds = Set.of(keys(envH))
     const bindingMap = Map.empty<string, TypedBinding>()
     const depGraph: Graph.Graph<string> = Map.empty()
 
     for (const typedBinding of typedBindings) {
       const { binding, env } = typedBinding
-      for (const lVar of keys(env)) {
-        bindingMap.set(lVar, typedBinding)
-        depGraph.set(lVar, collectExprVars(binding.rhs).intersection(lVars))
+      for (const varId of keys(env)) {
+        bindingMap.set(varId, typedBinding)
+        depGraph.set(varId, collectExprVars(binding.rhs).intersection(varIds))
       }
     }
 
@@ -429,27 +453,32 @@ export class Infer {
     return comps
       .toReversed()
       .map(({ color, nodes }): BindingGroup.Group => {
-        const lVars = [...nodes]
+        const varIds = [...nodes]
         const typedBindings = pipe(
-          lVars,
-          map(lVar => bindingMap.get(lVar)!),
+          varIds,
+          map(varId => bindingMap.get(varId)!),
           unique(),
         )
         return {
           id: color,
           typedBindings,
-          lVars,
-          envH: pick(envH, lVars),
+          varIds: varIds,
         }
       })
   }
 
   inferBindings(
     bindings: Binding<{}, 'int'>[],
+    decls: Decl[],
     env: TypeEnv,
     node: Node,
   ): InferBinding.Res {
     void node
+    const declMap = pipe(
+      decls,
+      flatMap(decl => decl.vars.map(({ id }) => [id, decl] as const)),
+      Map.of,
+    )
     return Result
       .fold(
         bindings,
@@ -459,7 +488,11 @@ export class Infer {
           .mapErr(InferPattern.wrapErr)
           .map(({ env: envHi, type: patternType }) => ({
             envH: { ...envH, ...envHi },
-            typedBindings: [...typedBindings, { binding, env: envHi, type: patternType }],
+            typedBindings: typedBindings.concat({
+              binding,
+              env: envHi,
+              type: patternType,
+            }),
           }))
       )
       .bind(({ envH, typedBindings }) => {
@@ -467,9 +500,9 @@ export class Infer {
         return Result
           .fold(
             groups,
-            { substC: TypeSubst.empty(), envS: envH },
+            { substC: TypeSubst.empty(), envS: { ...env, ...envH } },
             ({ substC, envS }, group) => this
-              .inferBindingGroup(group, { ...env, ...envS })
+              .inferBindingGroup(group, declMap, envS)
               .map(({ subst, env: envSi }) => ({
                 substC: TypeSubst.compose([subst, substC]),
                 envS: { ...envS, ...envSi },
@@ -478,39 +511,65 @@ export class Infer {
           .map(({ substC, envS }) => ({
             subst: substC,
             env: envS,
-            lVars: Set.of(keys(envH)),
+            varIds: Set.of(keys(envH)),
           }))
       })
   }
 
-  inferBindingGroup({ typedBindings, lVars, envH }: BindingGroup.Group, env: TypeEnv) {
+  inferBindingGroup(
+    { typedBindings, varIds: varIds }: BindingGroup.Group,
+    declMap: Map<string, Decl>,
+    env: TypeEnv,
+  ) {
     return Result
       .fold(
-        [...typedBindings],
-        { substC: TypeSubst.empty(), envS: envH },
-        ({ substC, envS }, { binding: { rhs }, env: envHi, type: patternType }) => this
-          .infer(rhs, { ...env, ...envS })
+        typedBindings,
+        { substC: TypeSubst.empty(), envS: env },
+        ({ substC, envS }, { binding, env: envHi, type: patternType }) => this
+          .infer(binding.rhs, envS)
           .bind(({ type: valType, subst: valSubst }) =>
             unify(valType, TypeSourced.appliedBy(valSubst)(patternType))
-              .mapErr(Unify.wrapErr)
-              .map(substU => {
+              .bind(substU => {
                 const valSubstC = TypeSubst.compose([substU, valSubst])
-                const envSi = TypeSubst.applySchemeDict(valSubstC)(envS)
+                return Result
+                  .fold(
+                    keys(envHi).filter(id => declMap.has(id)),
+                    {
+                      substC: TypeSubst.compose([valSubstC, substC]),
+                      envC: TypeSubst.applySchemeDict(valSubstC)(envS),
+                    },
+                    ({ substC, envC }, id) => {
+                      const bindingVar = TypeSourced.inferBindingVar(envC[id].type, id, binding)
+                      const annType = TypeSourced.annDecl(
+                        this.tvs.skolemize(declMap.get(id)!.ann.val),
+                        declMap.get(id)!,
+                        id,
+                      )
+                      return unify(bindingVar, annType)
+                        .map(substU => ({
+                          substC: TypeSubst.compose([substU, substC]),
+                          envC: TypeSubst.applySchemeDict(substU)(envC),
+                        }))
+                    }
+                  )
+              })
+              .mapErr(Unify.wrapErr)
+              .map(({ substC, envC }) => {
                 const existingTypeVars = pipe(
-                  envSi,
-                  omit(lVars),
+                  envC,
+                  omit(varIds),
                   values(),
                   map(collectTypeSchemeTypeVars),
                   Set.union,
                 )
                 const envGi = pipe(
-                  envSi,
+                  envC,
                   pick(keys(envHi)),
                   mapValues(({ type }) => generalize(type, existingTypeVars))
                 )
                 return {
-                  substC: TypeSubst.compose([valSubstC, substC]),
-                  envS: { ...envSi, ...envGi },
+                  substC,
+                  envS: { ...envC, ...envGi },
                 }
               })
           )
@@ -565,7 +624,7 @@ export class Infer {
         )
       )
       .with({ type: 'let' }, ({ bindings, body }) => this
-        .inferBindings(bindings, env, expr)
+        .inferBindings(bindings, [], env, expr)
         .bind(({ env: envI, subst: bindingSubst }) => this
           .infer(body, { ...env, ...envI })
           .map(({ type: bodyType, subst: bodySubst }) => ({
@@ -632,7 +691,7 @@ export class Infer {
       .with({ type: 'ann' }, ({ expr, ann: { val: annType } }) => this
         .infer(expr, env)
         .bind(({ type: exprType, subst: exprSubst }) => {
-          const annTypeA = TypeSourced.actualFunc(annType, expr)
+          const annTypeA = TypeSourced.annAnn(this.tvs.skolemize(annType), expr)
           return unify(exprType, annTypeA)
             .mapErr(Unify.wrapErr)
             .map<Infer.Ok>(substU => ({
