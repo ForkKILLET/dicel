@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { isSymbolOrComma, type Pipeline } from '@dicel/core'
+import { type Pipeline } from '@dicel/core'
 import TypeSchemeV from '../TypeScheme.vue'
+import NodeV from '../NodeV.vue'
 
 defineProps<{
   result: Pipeline.CheckOutput
@@ -12,7 +13,7 @@ defineProps<{
     <div class="badge">check</div>
       Types:
     <div v-for="typeScheme, id in result.typeEnv" :key="id">
-      <span class="node-var">{{isSymbolOrComma(id) ? `(${id})` : id}}</span> :: <TypeSchemeV :type-scheme="typeScheme" />
+      <NodeV :node="{ type: 'var', id }" /> :: <TypeSchemeV :type-scheme="typeScheme" />
     </div>
   </div>
 </template>

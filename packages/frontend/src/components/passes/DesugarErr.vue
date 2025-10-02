@@ -16,5 +16,8 @@ defineProps<{
       and <NodeV :node="{ type: 'var', id: err.rOp }" /> [{{ Fixity.show(err.rFixity) }}]
       in the same infix expression
     </template>
+    <template v-else-if="err.type === 'section'">
+      Arbitrary section expression <NodeV :node="err.expr" />
+    </template>
   </div>
 </template>

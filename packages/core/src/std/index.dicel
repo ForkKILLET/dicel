@@ -1,7 +1,0 @@
-id = \a -> a
-
-const = \a b -> a
-
-map = \f as -> case as of
-  [] -> []
-  a#as -> f a # as

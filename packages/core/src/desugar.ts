@@ -1,13 +1,15 @@
 import { Result } from 'fk-result'
-import { match } from 'ts-pattern'
+import { match, P } from 'ts-pattern'
 import {
   NumExpr, UnitExpr, VarExpr, LetExpr, CaseExpr, CondExpr, ApplyExpr, ExprInt, Binding, CaseBranch,
   LambdaExpr, TypeNode, AnnExpr, PatternInt, Def, DataDef, Mod, NodeType, NodeInt, Node, Expr, Pattern,
-  DRange,
   Decl,
-  FixityDecl
+  FixityDecl,
+  SectionLExpr,
+  SectionRExpr,
+  Import
 } from './nodes'
-import { Fixity, ApplyExprCurried, LambdaExprCurried, builtinFixityTable } from './parse'
+import { Fixity, ApplyExprCurried, LambdaExprCurried, builtinFixityTable, extractMaybeInfixOp } from './parse'
 import { id } from './utils'
 import { flatMap, fromEntries, pipe } from 'remeda'
 
@@ -28,14 +30,18 @@ export type DesugarMap = {
   typeNode: TypeNode<{}>
   ann: AnnExpr<{}, 'int'>
   infix: ExprInt
+  sectionL: ExprInt
+  sectionR: ExprInt
   lambdaCase: LambdaExpr<{}, 'int'>
   tuple: ExprInt
   list: ExprInt
+  paren: ExprInt
   pattern: PatternInt
   def: Def<{}, 'int'>
   decl: Decl<{}>
   fixityDecl: FixityDecl<{}>
   dataDef: DataDef<{}>
+  import: Import<{}>
   mod: Mod<{}, 'int'>
 }
 export const assertDesugarMapComplete: Record<NodeType, NodeInt> = {} as DesugarMap
@@ -47,6 +53,7 @@ export type DesugarInput = {
 export type DesugarEnv = DesugarInput & {
   desugar: <K extends NodeType>(node: Extract<Node, { type: K }>) => DesugarMap[K]
   panic: (err: Desugar.Err) => never
+  getFixity: (op: string) => Fixity
 }
 
 export type DesugarImpls = {
@@ -109,7 +116,7 @@ export const DesugarImpls: DesugarImpls = {
     expr: env.desugar(expr.expr),
   }),
   infix: (env, expr): ExprInt => {
-    const getFixity = (op: string): Fixity => env.fixityTable[op] ?? Fixity.def()
+    const getFixity = (op: string): Fixity => env.getFixity(op)
 
     const ops = expr.ops.map(op => op.id)
     const args = expr.args.slice()
@@ -123,7 +130,7 @@ export const DesugarImpls: DesugarImpls = {
       const right = exprStack.pop()!
       const left = exprStack.pop()!
       exprStack.push(ApplyExprCurried(
-        { type: 'var', id: top },
+        { type: 'var', id: top, isInfix: true },
         [left, right]
       ))
     }
@@ -163,6 +170,53 @@ export const DesugarImpls: DesugarImpls = {
 
     return env.desugar(exprStack[0])
   },
+  sectionL: (env, expr): ExprInt => {
+    const arg = env.desugar(expr.arg)
+    if (expr.arg.type === 'infix') {
+      const argOp = extractMaybeInfixOp(arg)
+      if (argOp) {
+        const sectionFixity = env.getFixity(expr.op.id)
+        const argFixity = env.getFixity(argOp)
+        if (
+          sectionFixity.prec > argFixity.prec ||
+          sectionFixity.prec === argFixity.prec && sectionFixity.assoc !== 'left'
+        ) env.panic({ type: 'section', expr })
+      }
+    }
+
+    return {
+      type: 'apply',
+      func: { type: 'var', id: expr.op.id },
+      arg,
+    }
+  },
+  sectionR: (env, expr): ExprInt => {
+    const arg = env.desugar(expr.arg)
+    if (expr.arg.type === 'infix') {
+      const argOp = extractMaybeInfixOp(arg)
+      if (argOp) {
+        const sectionFixity = env.getFixity(expr.op.id)
+        const argFixity = env.getFixity(argOp)
+        if (
+          sectionFixity.prec > argFixity.prec ||
+          sectionFixity.prec === argFixity.prec && sectionFixity.assoc !== 'right'
+        ) env.panic({ type: 'section', expr })
+      }
+    }
+
+    return {
+      type: 'lambda',
+      param: {
+        type: 'pattern',
+        sub: 'var',
+        var: { type: 'var', id: '!lhs' },
+      },
+      body: ApplyExprCurried<'int'>(
+        expr.op,
+        [{ type: 'var', id: '!lhs' }, arg]
+      ),
+    }
+  },
   lambdaCase: (env, expr): LambdaExpr<{}, 'int'> => ({
     type: 'lambda',
     param: {
@@ -184,6 +238,7 @@ export const DesugarImpls: DesugarImpls = {
     { type: 'var', id: `${','.repeat(elems.length - 1)}` },
     elems,
   )),
+  paren: (env, { expr }): ExprInt => env.desugar(expr),
   pattern: (env, pattern): PatternInt => match<Pattern, PatternInt>(pattern)
     .with({ sub: 'con' }, pattern => ({
       ...pattern,
@@ -218,6 +273,7 @@ export const DesugarImpls: DesugarImpls = {
   decl: (_env, decl): Decl<{}> => decl,
   fixityDecl: (_env, decl): FixityDecl<{}> => decl,
   dataDef: (_env, def): DataDef<{}> => def,
+  import: (_env, import_): Import<{}> => import_,
   mod: (env, mod): Mod<{}, 'int'> => ({
     ...mod,
     defs: mod.defs.map(env.desugar),
@@ -229,8 +285,13 @@ export namespace Desugar {
 
   export type Err =
     | { type: 'fixity', lOp: string, rOp: string, lFixity: Fixity, rFixity: Fixity }
+    | { type: 'section', expr: SectionLExpr | SectionRExpr }
 
   export type Res<K extends NodeType> = Result<Ok<K>, Err>
+}
+
+export const checkSectionFixity = (env: DesugarEnv, op: string, arg: Expr): void => {
+
 }
 
 export const collectFixities = (mod: Mod): Record<string, Fixity> => pipe(
@@ -244,7 +305,8 @@ export const desugar = <K extends NodeType>(input: DesugarInput, node: Extract<N
     ...input,
     desugar: <K extends NodeType>(node: Extract<Node, { type: K }>): DesugarMap[K] =>
       DesugarImpls[node.type](env, node),
-    panic: (err: Desugar.Err) => { throw err }
+    panic: (err: Desugar.Err) => { throw err },
+    getFixity: (op: string) => env.fixityTable[op] ?? Fixity.def(),
   }
   return Result.wrap<Desugar.Ok<K>, Desugar.Err>(() => env.desugar(node))
 }

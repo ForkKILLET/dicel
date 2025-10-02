@@ -95,6 +95,14 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV v-if="i < node.args.length - 1" :node="node.ops[i]" :selection="selection" :parent="node" class="node-spaced" />
       </template>
     </span>
+    <span v-else-if="node.type === 'sectionL'">
+      <NodeV :node="node.arg" :selection="selection" :parent="node" />
+      <NodeV :node="node.op" :selection="selection" :parent="node" class="node-spaced-left" />
+    </span>
+    <span v-else-if="node.type === 'sectionR'">
+      <NodeV :node="node.op" :selection="selection" :parent="node" class="node-spaced-right" />
+      <NodeV :node="node.arg" :selection="selection" :parent="node" />
+    </span>
     <span v-else-if="node.type === 'lambda'">
       <span class="node-sym">\</span>
       <NodeV :node="node.param" :selection="selection" :parent="node" class="node-spaced-right" />
@@ -124,6 +132,9 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV :node="elem" :selection="selection" :parent="node" />
         <span v-if="i < node.elems.length - 1" class="node-spaced-right">,</span>
       </template>)
+    </span>
+    <span v-else-if="node.type === 'paren'">
+      (<NodeV :node="node.expr" :selection="selection" :parent="node" />)
     </span>
     <span v-else-if="node.type === 'ann'">
       <NodeV :node="node.expr" :selection="selection" :parent="node" />
@@ -165,7 +176,19 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <TypeV v-for="param of con.params" :type="param" class="node-spaced-left" />
       </template>
     </span>
+    <span v-else-if="node.type === 'import'">
+      <span class="node-kw">import</span>
+      <span class="node-var">{{ node.modName }}</span>
+      (<template v-for="id, i of node.ids" :key="i">
+        <NodeV :node="{ type: 'var', id }" :parent="node" />
+        <span v-if="i < node.ids.length - 1" class="node-spaced-right">,</span>
+      </template>)
+    </span>
     <span v-else-if="node.type === 'mod'">
+      <div v-for="import_ of node.imports">
+        <NodeV :node="import_" :selection="selection" :parent="node" />
+      </div>
+
       <div v-for="dataDef of node.dataDefs">
         <NodeV :node="dataDef" :selection="selection" :parent="node" />
       </div>

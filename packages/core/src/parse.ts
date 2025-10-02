@@ -15,7 +15,13 @@ import {
   ListPattern,
   LambdaMultiExpr,
   Decl,
-  FixityDecl
+  FixityDecl,
+  SectionLExpr,
+  SectionRExpr,
+  ParenExpr,
+  NodeStage,
+  ExprS,
+  Import
 } from './nodes'
 import { isLower, isUpper, RESERVE_WORDS, SYMBOL_CHARS } from './lex'
 
@@ -118,13 +124,15 @@ export const pNum: P<NumExpr<DRange>> = pRanged(p.map(p.decimal, val => ({
   val,
 })))
 
-export const pIdentifier: P<string> = p.bind(
-  p.notEmpty(p.regex(/[A-Za-z][A-Za-z\d']*|_[A-Za-z\d']+/)),
+export const pIdent: P<string> = p.bind(
+  p.regex(/[A-Za-z][A-Za-z\d']*|_[A-Za-z\d']+/),
   id => p.result(RESERVE_WORDS.includes(id)
     ? Err(ParseErr('IsReserveWord', { word: id }))
     : Ok(id)
   )
 )
+export const pIdentBig = p.guard(pIdent, id => isUpper(id[0]))
+export const pIdentSmall = p.guard(pIdent, id => isLower(id[0]))
 
 export const pSymbol: P<string> = p.join(p.some(p.oneOf(SYMBOL_CHARS)))
 export const pSymbolOrComma: P<string> = p.alt([pSymbol, p.join(p.some(p.char(',')))])
@@ -147,14 +155,21 @@ export const pUnitExprInner: P<UnitExpr<DRange>> = pRanged(p.pure({ type: 'unit'
 
 export const pSymbolVarExprInner: P<VarExpr<DRange>> = pRanged(p.map(pSymbolOrComma, (id): VarExpr => ({ type: 'var', id })))
 
-export const pParenExpr: P<Expr<DRange>> = p.parens(
+export const pParenExprInner: P<ParenExpr<DRange>> = p.lazy(() => pRanged(p.map(
+  pExpr,
+  expr => ({ type: 'paren', expr })
+)))
+
+export const pParenExpr: P<Expr<DRange>> = p.lazy(() => pRanged(p.parens(
   pSpacedAround(p.alt([
     pTupleExprInner,
-    p.lazy(() => pExpr),
+    pSectionLExprInner,
+    pSectionRExprInner,
     pSymbolVarExprInner,
+    pParenExprInner,
     pUnitExprInner,
   ]))
-)
+)))
 
 export const pListExpr: P<ListExpr<DRange>> = p.lazy(() => pRanged(p.map(
   p.brackets(pSpacedAround(p.alt([
@@ -176,11 +191,11 @@ export const pPrimaryExpr: P<Expr<DRange>> = p.lazy(() => p.alt([
 ]))
 
 export const pVar: P<VarExpr<DRange>> = pRanged(p.map(
-  p.guard(pIdentifier, id => ! isUpper(id[0])),
+  pIdentSmall,
   id => ({ type: 'var', id })
 ))
 export const pCon: P<VarExpr<DRange>> = pRanged(p.map(
-  p.guard(pIdentifier, id => isUpper(id[0])),
+  pIdentBig,
   id => ({ type: 'var', id })
 ))
 
@@ -200,21 +215,27 @@ export const pRollExpr: P<RollExpr<DRange>> = p.map(
 
 export const pRollExprL = p.alt([pRollExpr, pPrimaryExpr])
 
-export const ApplyExprCurried = (func: Expr, args: Expr[]): ApplyExpr => (args.length
+export const ApplyExprCurried = <S extends NodeStage = 'raw'>(func: ExprS<{}, S>, args: ExprS<{}, S>[]): ApplyExpr<{}, S> => (args.length
   ? pipe(
     unsnoc(args),
-    ([args, arg]) => ({
+    ([args, arg]): ApplyExpr => ({
       type: 'apply',
       func: ApplyExprCurried(func, args),
       arg,
     })
   )
   : func
-) as ApplyExpr
+) as ApplyExpr<{}, S>
 
 export const uncurryApplyExpr = (expr: ApplyExpr<DRange>): Expr<DRange>[] => expr.func.type === 'apply'
     ? [...uncurryApplyExpr(expr.func), expr.arg]
     : [expr.func, expr.arg]
+
+export const extractMaybeInfixOp = (expr: Expr) => {
+  if (expr.type === 'apply' && expr.func.type === 'apply' && expr.func.func.type === 'var' && expr.func.func.isInfix) 
+    return expr.func.func.id
+  return null
+}
 
 export const pApplyExpr: P<ApplyMultiExpr<DRange>> = pRanged(p.lazy(() => p.map(
   p.seq([
@@ -273,7 +294,7 @@ export const builtinFixityTable: FixityTable = {
 export const pInfixExpr: P<InfixExpr<DRange>> = pRanged(p.map(
   p.seq([
     pApplyExprL,
-    p.many(p.seq([pSpacedAround(pSymbolVar), pApplyExprL])),
+    p.some(p.seq([pSpacedAround(pSymbolVar), pApplyExprL])),
   ]),
   ([head, tail]) => pipe(
     tail.reduce<{
@@ -293,16 +314,35 @@ export const pInfixExpr: P<InfixExpr<DRange>> = pRanged(p.map(
     })
   )
 ))
+export const pInfixExprL = p.lazy(() => p.alt([pInfixExpr, pApplyExprL]))
+
+export const pSectionLExprInner: P<SectionLExpr<DRange>> = pRanged(p.map(
+  p.seq([pInfixExprL, pSpaced(pSymbolVarExprInner)]),
+  ([arg, op]) => ({
+    type: 'sectionL',
+    op,
+    arg,
+  })
+))
+
+export const pSectionRExprInner: P<SectionRExpr<DRange>> = pRanged(p.map(
+  p.seq([pSymbolVarExprInner, pSpaced(pInfixExprL)]),
+  ([op, arg]) => ({
+    type: 'sectionR',
+    op,
+    arg,
+  })
+))
 
 export const pCondExpr: P<Expr<DRange>> = p.lazy(() => p.map(
   p.seq([
-    pInfixExpr,
+    pInfixExprL,
     p.many(p.map(
       p.seq([
         pSpacedAround(p.char('?')),
-        pInfixExpr,
+        pInfixExprL,
         pSpacedAround(p.char(':')),
-        pInfixExpr,
+        pInfixExprL,
       ]),
       ([, yes, , no]): [Expr<DRange>, Expr<DRange>] => [yes, no]
     ))
@@ -503,8 +543,8 @@ export const pLambdaCaseExpr: P<LambdaCaseExpr<DRange>> = p.lazy(() => pRanged(p
 )))
 
 export const pConType: P<ConType> = p.map(
-  p.guard(pIdentifier, id => isUpper(id[0])),
-  id => ({ sub: 'con', id })
+  p.guard(pIdent, id => isUpper(id[0])),
+  ConType,
 )
 
 export const pParenType: P<Type> = p.lazy(() => p.parens(pType))
@@ -529,11 +569,8 @@ export const pFuncType: P<FuncType> = p.lazy(() => p.map(
 ))
 
 export const pVarType: P<VarType> = p.map(
-  p.guard(pIdentifier, id => isLower(id[0])),
-  (id): VarType => ({
-    sub: 'var',
-    id,
-  })
+  p.guard(pIdent, id => isLower(id[0])),
+  VarType,
 )
 
 export const pType: P<Type> = p.alt([
@@ -637,13 +674,39 @@ export const pDataDef: P<DataDef<DRange>> = pRanged(p.lazy(() => p.bind(
   ))
 ))
 
-export const pMod: P<Mod<DRange>> =p.map(
-  p.ranged(pBlock(p.alt([pFixityDecl, pDecl, pDef, pDataDef]))),
+export const pImport: P<Import<DRange>> = pRanged(p.map(
+  p.seq([
+    p.str('import'),
+    pSpaced(pIdentBig),
+    p.opt(pSpaced(p.parens(pSpacedAround(p.alt([
+      p.sep(
+        p.alt([pVar, pCon, p.parens(pSymbolVarExprInner)]),
+        pSpacedAround(p.char(',')),
+      ),
+      p.pure([]),
+    ]))))),
+  ]),
+  ([, modName, vars]) => ({
+    type: 'import',
+    modName,
+    ids: vars?.map(({ id }) => id) ?? [],
+  })
+))
+
+export const pMod: P<Mod<DRange>> = p.map(
+  p.ranged(pBlock(p.alt([pImport, pFixityDecl, pDecl, pDef, pDataDef]))),
   ({ val: defs, range }) => pipe(
     defs,
     groupByProp('type'),
-    ({ def: defs = [], dataDef: dataDefs = [], fixityDecl: fixityDecls = [], decl: decls = [] }): Mod<DRange> => ({
+    ({
+      import: imports = [],
+      def: defs = [],
+      dataDef: dataDefs = [],
+      fixityDecl: fixityDecls = [],
+      decl: decls = [],
+    }): Mod<DRange> => ({
       type: 'mod',
+      imports,
       defs,
       decls,
       fixityDecls,

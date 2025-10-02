@@ -1,7 +1,7 @@
 import { entries, map, mapValues, mergeAll, pipe } from 'remeda'
 import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, ApplyTypeCurried, TypedValueEnv, TypedValue, ApplyType } from './types'
 import { Data, DataEnv } from './data'
-import { ConValue, ErrValue, FuncValue, FuncValue2, FuncValueJ, FuncValueJ2, Value } from './values'
+import { ConValue, ErrValue, FuncValue, FuncValue2, FuncValueJ, FuncValueJ2, NumValue, Value } from './values'
 import { Dice } from './execute'
 import { Endo } from './utils'
 
@@ -130,6 +130,11 @@ export const builtinFuncs: TypedValueEnv = {
     FuncType(ConType('Num'), ConType('Num')),
     FuncValueJ(Math.abs),
   ),
+
+  Infinity: TypedValue(
+    ConType('Num'),
+    NumValue(Infinity),
+  ),
 }
 
 export const builtinData: DataEnv = {
@@ -198,3 +203,4 @@ export const builtinVals: TypedValueEnv = {
 }
 
 export const builtinEnv: TypeSchemeDict = mapValues(builtinVals, builtin => builtin.typeScheme)
+

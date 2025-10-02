@@ -1,10 +1,12 @@
-import { fromEntries, map, mapValues, mergeAll, pipe } from 'remeda'
+import { fromEntries, map, mapValues, mergeAll, pick, pipe } from 'remeda'
 import { Result } from 'fk-result'
 import { builtinVals } from './builtin'
 import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
 import { collectPatternVars } from './infer'
 import { Data } from './data'
 import { Binding, ExprInt, Mod, PatternInt } from './nodes'
+import { P } from 'ts-pattern'
+import { CompiledMod } from './std'
 
 export type Ref = { value: Value }
 export type ValueEnv = Record<string, Ref>
@@ -154,13 +156,27 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
 export const execute = (expr: ExprInt, env: ValueEnv = ValueEnv.global()): Result<Value, EvaluateError> =>
   Result.wrap(() => evaluate(expr, env))
 
-export const executeMod = (mod: Mod<{}, 'int'>): Result<ValueEnv, EvaluateError | Error> => {
-  const dataRuntimeEnv = pipe(
+export namespace ExecuteMod {
+  export type Options = {
+    compiledMods: Record<string, CompiledMod>
+  }
+}
+
+export const executeMod = (
+  mod: Mod<{}, 'int'>,
+  { compiledMods = {} }: Partial<ExecuteMod.Options> = {}
+): Result<ValueEnv, EvaluateError | Error> => {
+  const importEnv = pipe(
+    mod.imports,
+    map(({ modName, ids }) => pick(compiledMods[modName].valueEnv, ids)),
+    mergeAll,
+  )
+  const dataValueEnv = pipe(
     mod.dataDefs,
     map(({ data }) => Data.getValueEnv(data)),
     mergeAll,
   )
-  const env = { ...ValueEnv.global(), ...dataRuntimeEnv }
+  const env = { ...ValueEnv.global(), ...importEnv, ...dataValueEnv }
   return Result
     .wrap<ValueEnv, EvaluateError | Error>(() => evaluateBindings(mod.defs.map(def => def.binding), env))
     .tapErr(err => {

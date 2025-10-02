@@ -30,15 +30,24 @@ export const ApplyTypeCurried = (...[head, ...tail]: Type[]): Type => tail.lengt
   )
   : head
 
-export type VarType ={
+export type VarType = {
   sub: 'var'
   id: string
-  rigid?: boolean
-}
-export const VarType = (id: string, rigid?: boolean): VarType => ({
+} & (
+  | { rigid: false }
+  | { rigid: true, customId: string }
+)
+
+export const VarType = (id: string): VarType => ({
   sub: 'var',
   id,
-  rigid,
+  rigid: false,
+})
+export const RigidVarType = (id: string, customId: string): VarType => ({
+  sub: 'var',
+  id,
+  rigid: true,
+  customId,
 })
 
 export type FuncType = {
@@ -77,8 +86,8 @@ export const uncurryFuncType = (type: FuncType): Type[] => type.ret.sub === 'fun
   : [type.param, type.ret]
 
 export type TypeDesc =
-  | { sub: 'con', id: string }
-  | { sub: 'var', id: string, rigid?: boolean }
+  | ConType
+  | VarType
   | { sub: 'apply', args: TypeDesc[] }
   | { sub: 'tuple', args: TypeDesc[] }
   | { sub: 'func', args: TypeDesc[] }

@@ -34,6 +34,12 @@ defineProps<{
       <template v-else-if="err.type === 'NoMain'">
         Undefined variable 'main'.
       </template>
+      <template v-else-if="err.type === 'UnknownMod'">
+        Unknown module '{{ err.modName }}'.
+      </template>
+      <template v-else-if="err.type === 'UnknownImport'">
+        Module '{{ err.modName }}' has no exported symbol '{{ err.id }}'.
+    </template>
     </div>
   </div>
 </template>

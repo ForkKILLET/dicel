@@ -11,11 +11,11 @@
 
 - ( ) comment
 
-- (.) operator enhancements
+- (v) operator enhancements
   - (v) custom operators
   - (v) fixity parsing
   - (v) custom fixity
-  - ( ) sections
+  - (v) sections
 
 - (.) modules
   - (v) top level definitions

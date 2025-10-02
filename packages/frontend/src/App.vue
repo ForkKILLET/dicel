@@ -31,7 +31,6 @@ onMounted(() => {
   watch(source, () => {
     localStorage['source'] = source.value
     runner.run(source.value)
-    console.log(runnerCache)
   }, { immediate: true })
 
   watch(selection, () => {

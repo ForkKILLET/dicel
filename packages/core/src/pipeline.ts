@@ -1,12 +1,13 @@
-import { Ok, Result } from 'fk-result'
+import { Result } from 'fk-result'
 import { CheckMod, checkMod } from './check'
-import { builtinFixityTable, Parse, parseMod } from './parse'
+import { Parse, parseMod } from './parse'
 import { EvaluateError, executeMod, ValueEnv } from './execute'
 import { TypeEnv } from './infer'
 import { Value } from './values'
 import { Mod } from './nodes'
-import { Desugar, desugar, desugarMod } from './desugar'
+import { Desugar, desugarMod } from './desugar'
 import { Last } from './utils'
+import { builtinMods } from './std'
 
 export namespace Pipeline {
   export type PassSeq = ['parse', 'desugar', 'check', 'execute']
@@ -83,7 +84,7 @@ export namespace Pipeline {
   }
 
   export type ExecuteOutput = CheckOutput & {
-    runtimeEnv: ValueEnv
+    valueEnv: ValueEnv
     mainValue: Value
   }
   export type ExecuteErr = CheckOutput & {
@@ -141,17 +142,17 @@ export namespace Pipeline {
         .mapErr(err => ({ ...state, desugar: false, err })),
 
     check: (state) =>
-      checkMod(state.modInt, { isMain: true })
+      checkMod(state.modInt, { isMain: true, compiledMods: builtinMods })
         .map(({ typeEnv }) => ({ ...state, check: true, typeEnv }))
         .mapErr(err => ({ ...state, check: false, err })),
 
     execute: (state) =>
-      executeMod(state.modInt)
-        .map(runtimeEnv => ({
+      executeMod(state.modInt, { compiledMods: builtinMods })
+        .map(valueEnv => ({
           ...state,
           execute: true,
-          runtimeEnv,
-          mainValue: runtimeEnv['main'].value,
+          valueEnv,
+          mainValue: valueEnv['main'].value,
         }))
         .mapErr(err => ({ ...state, execute: false, err })),
   }

@@ -1,7 +1,7 @@
 import { match } from 'ts-pattern'
 import { flatMap, keys, map, mapValues, omit, pick, pipe, unique, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
-import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, ApplyType, FuncTypeCurried } from './types'
+import { Type, TypePair, isHomoPair, matchHomoPair, ConType, VarType, FuncType, TypeDict, TypeScheme, TypeSchemeDict, ApplyType, FuncTypeCurried, RigidVarType } from './types'
 import { Binding, Decl, ExprInt, Node, PatternInt } from './nodes'
 import { Map, the, Set, Graph } from './utils'
 
@@ -188,12 +188,12 @@ export namespace Unify {
 }
 
 export const unify = (lhs: TypeSourced, rhs: TypeSourced): Unify.Res => {
-  console.log(`unify %s ≡ %s`, Type.show(lhs), Type.show(rhs))
+  // console.log(`unify %s ≡ %s`, Type.show(lhs), Type.show(rhs))
 
   if (lhs.sub !== 'var' && rhs.sub === 'var') [lhs, rhs] = [rhs, lhs]
   if (lhs.sub === 'var' && rhs.sub !== 'var') {
     if (occurs(lhs.id, rhs)) return Err({ type: 'Recursion', lhs, rhs })
-    if (lhs.rigid) return Err({ type: 'RigidVar', lhs, rhs, var: lhs.id })
+    if (lhs.rigid) return Err({ type: 'RigidVar', lhs, rhs, var: lhs.customId })
     return Ok({ [lhs.id]: rhs })
   }
 
@@ -205,7 +205,7 @@ export const unify = (lhs: TypeSourced, rhs: TypeSourced): Unify.Res => {
       lhs.id === rhs.id
         ? Ok({})
         : lhs.rigid && rhs.rigid
-          ? Err({ type: 'RigidVar', lhs, rhs, var: lhs.id })
+          ? Err({ type: 'RigidVar', lhs, rhs, var: lhs.customId })
           : Ok(lhs.rigid ? { [rhs.id]: lhs } : { [lhs.id]: rhs })
     )
     .sub('con', ([lhs, rhs]) => lhs.id === rhs.id
@@ -240,17 +240,26 @@ export class TypeVarState {
 
   private counter = 0
 
-  fresh(rigid?: boolean) {
-    return VarType(`${this.prefix}${this.counter++}`, rigid)
+  private nextId() {
+    return `${this.prefix}${this.counter++}`
   }
 
-  instantiate(scheme: TypeScheme, rigid?: boolean): Type {
-    const subst = TypeSubst.compose([...scheme.typeParamSet].map(id => ({ [id]: this.fresh(rigid) })))
+  fresh() {
+    return VarType(this.nextId())
+  }
+
+  freshRigid(customId: string) {
+    return RigidVarType(this.nextId(), customId)
+  }
+
+  instantiate(scheme: TypeScheme): Type {
+    const subst = TypeSubst.compose([...scheme.typeParamSet].map(id => ({ [id]: this.fresh() })))
     return TypeSubst.apply(subst)(scheme.type)
   }
 
   skolemize(type: Type): Type {
-    return this.instantiate(generalize(type), true)
+    const subst = TypeSubst.compose([...collectTypeTypeVars(type)].map(id => ({ [id]: this.freshRigid(id) })))
+    return TypeSubst.apply(subst)(type)
   }
 }
 

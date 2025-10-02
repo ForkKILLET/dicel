@@ -30,6 +30,7 @@ export type ListExpr<D = {}, S extends NodeStage = 'raw'> = D & {
 export type VarExpr<D = {}> = D & {
   type: 'var'
   id: string
+  isInfix?: boolean
 }
 
 export type ApplyExpr<D = {}, S extends NodeStage = 'raw'> = D & {
@@ -85,6 +86,11 @@ export type LetExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'let'
   bindings: Binding<D, S>[]
   body: ExprS<D, S>
+}
+
+export type ParenExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'paren'
+  expr: ExprS<D, S>
 }
 
 export type WildcardPattern<D = {}> = D & {
@@ -212,8 +218,15 @@ export type DataDef<D = {}> = D & {
   data: Data
 }
 
+export type Import<D = {}> = D & {
+  type: 'import'
+  modName: string
+  ids: string[]
+}
+
 export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'mod'
+  imports: Import<D>[]
   defs: Def<D, S>[]
   decls: Decl<D>[]
   fixityDecls: FixityDecl<D>[]
@@ -244,11 +257,14 @@ export type ExprInt<D = {}, S extends NodeStage = 'int'> =
 export type ExprExt<D = {}> =
   | RollExpr<D>
   | InfixExpr<D>
+  | SectionLExpr<D>
+  | SectionRExpr<D>
   | ApplyMultiExpr<D>
   | LambdaMultiExpr<D>
   | LambdaCaseExpr<D>
   | ListExpr<D>
   | TupleExpr<D>
+  | ParenExpr<D>
 
 export type Expr<D = {}> =
   | ExprInt<D, 'raw'>
@@ -270,6 +286,7 @@ export type NodeInt<D = {}, S extends NodeStage = 'raw'> =
   | Decl<D>
   | FixityDecl<D>
   | DataDef<D>
+  | Import<D>
   | Mod<D>
 
 export type NodeExt<D = {}> =
@@ -318,13 +335,15 @@ export namespace Pattern {
 export namespace Node {
   export const is = <const Ts extends NodeType[]>(node: Node, types: Ts): node is Node & { type: Ts[number] } => types.includes(node.type)
 
-  export const needsParen = (self: Node, parent: Node | null): boolean => parent !== null && (
-    self.type === 'var' && isSymbolOrComma(self.id) && parent.type !== 'infix' ||
-    parent.type === 'apply' && (
+  export const needsParen = (self: Node, parent: Node | null): boolean =>
+    self.type === 'var' && (
+      isSymbolOrComma(self.id) && (! parent || ! Array.of<NodeType>('infix', 'sectionL', 'sectionR').includes(parent?.type))
+    ) ||
+    self.type === 'sectionL' || self.type === 'sectionR' ||
+    parent?.type === 'apply' && (
       self.type === 'lambda' ||
       self.type === 'apply' && self === parent.arg
     )
-  )
 
   export const show = describeToShow<Node, Node>(
     expr => expr,
@@ -361,6 +380,12 @@ export namespace Node {
           .map((arg, i) => `${show(arg)}${ i < expr.args.length - 1 ? ` ${show(expr.ops[i])} ` : ''}`)
           .join('')
       )
+      .with({ type: 'sectionL' }, expr =>
+        `(${show(expr.arg)} ${show(expr.op)})`
+      )
+      .with({ type: 'sectionR' }, expr =>
+        `(${show(expr.op)} ${show(expr.arg)})`
+      )
       .with({ type: 'roll' }, expr =>
         `(${expr.times === null ? '' : show(expr.times)}@${show(expr.sides)})`
       )
@@ -382,7 +407,15 @@ export namespace Node {
             .join(' | ')
         }`
       )
-      .with({ type: 'mod' }, ({ defs }) => defs.map(show).join('\n\n'))
+      .with({ type: 'import' }, ({ modName: mod }) =>
+        `import ${mod}`
+      )
+      .with({ type: 'mod' }, mod => [
+        ...mod.dataDefs,
+        ...mod.decls,
+        ...mod.defs,
+        ...mod.fixityDecls,
+      ].map(show).join('\n\n'))
       .with({ type: 'lambdaCase' }, expr =>
         `\case ${expr.branches.map(show).join('; ')}`
       )
@@ -392,6 +425,7 @@ export namespace Node {
       .with({ type: 'tuple' }, expr =>
         `(${expr.elems.map(show).join(', ')})`
       )
+      .with({ type: 'paren' }, expr => `(${show(expr.expr)})`)
       .exhaustive(),
     needsParen,
   )
@@ -418,11 +452,15 @@ export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> = {
   decl: Decl<D>
   fixityDecl: FixityDecl<D>
   dataDef: DataDef<D>
+  import: Import<D>
   mod: Mod<D, S>
   roll: RollExpr<D, S>
   infix: InfixExpr<D, S>
+  sectionL: SectionLExpr<D, S>
+  sectionR: SectionRExpr<D, S>
   list: ListExpr<D, S>
   tuple: TupleExpr<D, S>
+  paren: ParenExpr<D, S>
 }[K]
 
 export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & DId> => {
@@ -448,6 +486,11 @@ export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & D
       case 'infix':
         newNode.ops = newNode.ops.map(traverse<'var'>)
         newNode.args = newNode.args.map(traverse<ExprType>)
+        break
+      case 'sectionL':
+      case 'sectionR':
+        newNode.arg = traverse<ExprType>(newNode.arg)
+        newNode.op = traverse<'var'>(newNode.op)
         break
       case 'cond':
         newNode.cond = traverse<ExprType>(newNode.cond)
@@ -482,6 +525,9 @@ export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & D
         break
       case 'tuple':
         newNode.elems = newNode.elems.map(traverse<ExprType>)
+        break
+      case 'paren':
+        newNode.expr = traverse<ExprType>(newNode.expr)
         break
       case 'caseBranch':
         newNode.pattern = traverse<'pattern'>(newNode.pattern)
@@ -528,6 +574,7 @@ export const withId = <K extends NodeType, D>(node: NodeH<K, D>): NodeH<K, D & D
       case 'dataDef':
         break
       case 'mod':
+        newNode.imports = newNode.imports.map(traverse<'import'>)
         newNode.defs = newNode.defs.map(traverse<'def'>)
         newNode.decls = newNode.decls.map(traverse<'decl'>)
         newNode.fixityDecls = newNode.fixityDecls.map(traverse<'fixityDecl'>)
