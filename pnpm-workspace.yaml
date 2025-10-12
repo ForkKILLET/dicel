@@ -1,8 +1,6 @@
 packages:
   - packages/*
+  - external/*
 
 linkWorkspacePackages: true
 
-overrides:
-  fk-result: link:../fk-result
-  parsecond: link:../parsecond

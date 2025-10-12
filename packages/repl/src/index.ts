@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline/promises'
 import { inspect } from 'node:util'
 
-import { parseExpr, execute, check, TypeScheme, Value, desugar, Node, builtinFixityTable } from '@dicel/core'
+import { parseExpr, execute, check, TypeScheme, Value, desugar, Node, builtinFixityDict, resolve, builtinMods } from '@dicel/core'
 
 export const startRepl = () => {
   const rl = createInterface({
@@ -23,14 +23,21 @@ export const startRepl = () => {
     if (process.env.DEBUG) console.log('AST:', expr)
     console.log('Expr: %s', Node.show(expr))
 
-    const desugarRes = desugar({ fixityTable: builtinFixityTable }, expr)
+    const resolveRes = resolve({ compiledMods: builtinMods }, expr)
+    if (resolveRes.isErr) {
+      console.log('Resolve Error: %o', resolveRes.err)
+      return
+    }
+    const exprRes = resolveRes.val
+
+    const desugarRes = desugar({ fixityDict: builtinFixityDict }, exprRes)
     if (desugarRes.isErr) {
       console.log('Desugar Error: %o', desugarRes.err)
       return
     }
-    const exprInt = desugarRes.val
+    const exprDes = desugarRes.val
 
-    const checkOutput = check(exprInt)
+    const checkOutput = check(exprDes)
     if (checkOutput.isErr) {
       console.log('Check Error:', checkOutput.err)
       return
@@ -39,12 +46,12 @@ export const startRepl = () => {
     const { typeScheme } = checkOutput.val
     console.log('Type: %s', TypeScheme.show(typeScheme))
 
-    const result = execute(exprInt)
-    if (result.isErr) {
-      console.log('Runtime Error:', result.err)
+    const executeResult = execute(exprDes)
+    if (executeResult.isErr) {
+      console.log('Runtime Error:', executeResult.err)
       return
     }
-    const { val } = result
+    const { val } = executeResult
     console.log('Value:', Value.show(val))
     if (process.env.DEBUG) console.log('Raw Value:', inspect(val, { depth: null }))
   }

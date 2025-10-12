@@ -1,6 +1,7 @@
 export * from './lex'
 export * from './nodes'
 export * from './parse'
+export * from './resolve'
 export * from './desugar'
 export * from './types'
 export * from './data'

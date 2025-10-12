@@ -24,7 +24,7 @@ jobs:
 
       - name: Build
         run: |
-          pnpm i --frozen-lockfile
+          pnpm i --no-frozen-lockfile
           pnpm -F @dicel/core build
           pnpm -F @dicel/frontend build
 
