@@ -25,6 +25,9 @@ const paren = computed(() => Type.needsParen(props.type, props.parent))
         <span v-if="i + 1 < type.args.length">,&nbsp;</span>
       </template>)
     </template>
+    <template v-else-if="type.sub === 'list'">
+      [<TypeDesc :type="type.arg" :parent="type" />]
+    </template>
     <template v-else-if="type.sub === 'func'">
       <template v-for="arg, i of type.args" :key="i">
         <TypeDesc :type="arg" :parent="type" />

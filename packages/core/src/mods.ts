@@ -5,10 +5,10 @@ import { Mod } from './nodes'
 import { desugarMod } from './desugar'
 import { resolveMod } from './resolve'
 import { KindEnv, TypeEnv } from './types'
-import { Check, checkMod } from './check'
+import { checkMod } from './check'
 import { executeMod, ValueEnv } from './execute'
 import { Dict, Graph, Map, Set } from './utils'
-import stdDicel from './std/Std.dicel?raw'
+import stdPrelude from './std/Prelude.dicel?raw'
 
 export type ResolvedMod = {
   kindEnv: KindEnv
@@ -26,7 +26,7 @@ export type ExecutedMod = CheckedMod & {
 export type CompiledMod = ExecutedMod // TODO: separate compile/execute
 
 export const builtinMods: Record<string, CompiledMod> = pipe(
-  { Std: stdDicel },
+  { Prelude: stdPrelude },
   mapValues((src): CompiledMod => {
     const mod = parseMod(src).unwrap()
     const { modRes, kindEnv } = resolveMod(mod, { compiledMods: {} }).unwrap()

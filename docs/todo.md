@@ -16,28 +16,32 @@
   - (v) custom fixity
   - (v) sections
 
-- ( ) comment
-
-- ( ) string
-- ( ) type synonyms
+- (v) comment
 
 - (.) modules
   - (v) top level definitions
   - (v) declarations
-  - (.) import
+  - (v) import
     - (v) import values
-    - (.) import types & fixities
-  - (.) stdlib
+    - (v) import types & fixities
+  - (v) stdlib
   - ( ) prelude
+
+- (v) check kind
+  - ( ) kinded type scheme
 
 ---
 
 ## Future
 
+- ( ) string
+- ( ) type synonyms
+
 - ( ) type class
 
 - ( ) list comprehension
 
+- ( ) effect system
 - ( ) lazy
 
 - ( ) better errors
@@ -45,4 +49,5 @@
   - ( ) better check errors
 
 - ( ) compile to ...
+  - ( ) LLVM IR
   - ( ) WASM

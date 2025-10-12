@@ -1,5 +1,8 @@
-export const RESERVE_WORDS = [
-  'let', 'in', 'case', 'of', 'data', 'class', 'where', 'infix', 'infixl', 'infixr', 'import'
+export const RESERVED_WORDS = [
+  'let', 'in', 'case', 'of', 'data', 'class', 'where', 'infix', 'infixl', 'infixr', 'import',
+]
+export const RESERVED_SYMBOLS = [
+  '?', ':', '::', '=', '->', '|,'
 ]
 
 export const SYMBOL_CHARS = '+-*/^%<>=!~&|.$#?:'

@@ -19,7 +19,7 @@ flip = \f x y -> f y x
 inf :: Num
 inf = 1 / 0
 
-map :: (a -> b) -> List a -> List b
+map :: (a -> b) -> [a] -> [b]
 map = \f xs -> case xs of
   [] -> []
   x#xs -> f x # map f xs
@@ -27,7 +27,7 @@ map = \f xs -> case xs of
 (<$>) = map
 infixl 4 <$>
 
-(++) :: List a -> List a -> List a
+(++) :: [a] -> [a] -> [a]
 (++) = \xs ys ->
   case xs of
     [] -> ys
@@ -53,3 +53,6 @@ not = \x -> case x of
 data Maybe a = Just a | Nothing
 
 data Either a b = Left a | Right b
+
+data Ordering = LT | EQ | GT
+

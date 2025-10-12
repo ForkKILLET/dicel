@@ -86,10 +86,12 @@ export const uncurryFuncType = (type: FuncType): Type[] => type.ret.sub === 'fun
   : [type.param, type.ret]
 
 export type TypeDesc =
+  | { sub: 'dummy', inner: TypeDesc }
   | ConType
   | VarType
   | { sub: 'apply', args: TypeDesc[] }
   | { sub: 'tuple', args: TypeDesc[] }
+  | { sub: 'list', arg: TypeDesc }
   | { sub: 'func', args: TypeDesc[] }
 
 export type TypeDescSub = TypeDesc['sub']
@@ -121,6 +123,8 @@ export namespace Type {
       const [func, ...args] = types
       if (func.sub === 'con' && func.id.includes(','))
         return { sub: 'tuple', args: args.map(describe) }
+      if (func.sub === 'con' && func.id === '[]')
+        return { sub: 'list', arg: describe(args[0]) }
       return { sub: 'apply', args: types.map(describe) }
     })
     .exhaustive()
@@ -128,17 +132,19 @@ export namespace Type {
   export const needsParen = (self: TypeDesc, parent: TypeDesc | null): boolean => parent !== null && (
     self.sub === 'func' && parent.sub === 'func' ||
     self.sub === 'func' && parent.sub === 'apply' ||
-    self.sub === 'apply' && parent.sub === 'apply'
+    self.sub === 'apply' && parent.sub !== 'func'
   )
 
   export const show = describeToShow(
     describe,
     (desc, show) => match<TypeDesc, string>(desc)
+      .with({ sub: 'dummy' }, ({ inner }) => show(inner))
       .with({ sub: 'con' }, type => type.id)
       .with({ sub: 'var' }, type => `${type.rigid ? '^' : ''}${type.id}`)
       .with({ sub: 'func' }, ({ args }) => args.map(show).join(' -> '))
       .with({ sub: 'apply' }, ({ args }) => `${args.map(show).join(' ')}`)
       .with({ sub: 'tuple' }, ({ args }) => `(${args.map(show).join(', ')})`)
+      .with({ sub: 'list' }, ({ arg }) => `[${show(arg)}]`)
       .exhaustive(),
     needsParen,
   )

@@ -88,7 +88,7 @@ export namespace Value {
     .with({ tag: 'unit' }, () => null)
     .with({ tag: 'con' }, value => value.id === 'True')
     .otherwise(({ val }) => val)
-    
+
   export const map = <const Vs extends MappableValueJ[]>(
     vals: { [I in keyof Vs]: Value },
     transform: (...vals: Vs) => MappableValueJ,
@@ -112,7 +112,7 @@ export namespace Value {
       }))
       .with({ id: '#' }, { id: '[]' }, value => ({
         tag: 'list',
-        vals: uncurryListValue(value),
+        vals: uncurryListValue(value).map(describe),
       }))
       .otherwise(({ id, args }) => ({
         tag: 'con',

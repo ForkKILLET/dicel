@@ -97,12 +97,12 @@ export const builtinData: KindedDataEnv = {
     ],
     kind: FuncNKind(1),
   },
-  List: {
-    id: 'List',
+  '[]': {
+    id: '[]',
     typeParams: ['a'],
     cons: [
       { id: '[]', params: [] },
-      { id: '#', params: [VarType('a'), ApplyTypeCurried(ConType('List'), VarType('a'))] },
+      { id: '#', params: [VarType('a'), ApplyTypeCurried(ConType('[]'), VarType('a'))] },
     ],
     kind: FuncNKind(2),
   },

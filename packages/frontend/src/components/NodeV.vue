@@ -172,7 +172,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <template v-for="con, i of node.data.cons" :key="i">
         <span v-if="i > 0" class="node-sym node-spaced">|</span>
         <span class="node-con">{{ con.id }}</span>
-        <TypeV v-for="param of con.params" :type="param" class="node-spaced-left" />
+        <TypeV v-for="param of con.params" :type="param" :has-parent="true" class="node-spaced-left" />
       </template>
     </span>
     <span v-else-if="node.type === 'import'">

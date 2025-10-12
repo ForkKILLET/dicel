@@ -1,7 +1,7 @@
 import { Err, Ok, Result } from 'fk-result'
 import { p, ParseErr, Parser, ParserState, Range } from 'parsecond'
 import { groupByProp, pipe } from 'remeda'
-import { ApplyTypeCurried, ConType, FuncType, Type, uncurryApplyType, VarType } from './types'
+import { ApplyType, ApplyTypeCurried, ConType, FuncType, Type, uncurryApplyType, VarType } from './types'
 import { unsnoc } from './utils'
 import {
   DRange, DId,
@@ -25,11 +25,11 @@ import {
   ExprRaw,
   ExprRawType
 } from './nodes'
-import { isLower, isUpper, RESERVE_WORDS, SYMBOL_CHARS } from './lex'
+import { isLower, isUpper, RESERVED_SYMBOLS, RESERVED_WORDS, SYMBOL_CHARS } from './lex'
 
 declare module 'parsecond' {
   export interface ParseErrMap {
-    IsReserveWord: {
+    IsReservedWord: {
       word: string
     }
     ConflictDefinition: {
@@ -139,15 +139,21 @@ export const pNum: P<NumExpr<DRange>> = pRanged(p.map(p.decimal, val => ({
 
 export const pIdent: P<string> = p.bind(
   p.regex(/[A-Za-z][A-Za-z\d']*|_[A-Za-z\d']+/),
-  id => p.result(RESERVE_WORDS.includes(id)
-    ? Err(ParseErr('IsReserveWord', { word: id }))
+  id => p.result(RESERVED_WORDS.includes(id)
+    ? Err(ParseErr('IsReservedWord', { word: id }))
     : Ok(id)
   )
 )
 export const pIdentBig = p.guard(pIdent, id => isUpper(id[0]))
 export const pIdentSmall = p.guard(pIdent, id => isLower(id[0]))
 
-export const pSymbol: P<string> = p.join(p.some(p.oneOf(SYMBOL_CHARS)))
+export const pSymbol: P<string> = p.bind(
+  p.join(p.some(p.oneOf(SYMBOL_CHARS))),
+  id => p.result(RESERVED_SYMBOLS.includes(id)
+    ? Err(ParseErr('IsReservedWord', { word: id }))
+    : Ok(id)
+  )
+)
 export const pSymbolOrComma: P<string> = p.alt([pSymbol, p.join(p.some(p.char(',')))])
 
 export const pSymbolVar: P<VarExpr<DRange>> = pRanged(p.map(
@@ -311,7 +317,7 @@ export const pCondExpr: P<ExprRaw<DRange>> = p.lazy(() => p.map(
     pInfixExprL,
     p.many(p.map(
       p.seq([
-        pSpacedAround(p.char('?')),
+        pSpacedAround(p.str('?')),
         pInfixExprL,
         pSpacedAround(p.char(':')),
         pInfixExprL,
@@ -524,6 +530,11 @@ export const pConType: P<ConType> = p.map(
   ConType,
 )
 
+export const pListType: P<ApplyType> = p.lazy(() => p.map(
+  p.brackets(pSpacedAround(pType)),
+  elem => ApplyType(ConType('[]'), elem),
+))
+
 export const pTupleTypeInner: P<Type> = p.lazy(() => p.map(
   p.sep1(pType, pSpacedAround(p.char(','))),
   elems => ApplyTypeCurried(ConType(`${','.repeat(elems.length - 1)}`), ...elems)
@@ -538,6 +549,7 @@ export const pParenType: P<Type> = p.lazy(() => p.parens(p.alt([
 ])))
 
 export const pPrimaryType: P<Type> = p.lazy(() => p.alt([
+  pListType,
   pParenType,
   pConType,
   pVarType,
