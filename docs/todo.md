@@ -1,5 +1,7 @@
 # Todo
 
+## 1.0.0
+
 - (v) refa Expr.show
 - (x) unary operators
 - (v) auto semi => layout
@@ -8,22 +10,31 @@
 - (v) custom ADT
 - (v) dicel IR => Node Stage
 - (v) binding groups
-
-- ( ) comment
-
 - (v) operator enhancements
   - (v) custom operators
   - (v) fixity parsing
   - (v) custom fixity
   - (v) sections
 
+- ( ) comment
+
+- ( ) string
+- ( ) type synonyms
+
 - (.) modules
   - (v) top level definitions
   - (v) declarations
-  - ( ) imports
+  - (.) import
+    - (v) import values
+    - (.) import types & fixities
+  - (.) stdlib
+  - ( ) prelude
+
+---
+
+## Future
 
 - ( ) type class
-- ( ) more builtins => stdlib
 
 - ( ) list comprehension
 

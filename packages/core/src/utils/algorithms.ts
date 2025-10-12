@@ -1,9 +1,8 @@
 import { DefaultMap, Map, Set } from './containers'
 
+export type Graph<K> = Map<K, Set<K>>
 
 export namespace Graph {
-  export type Graph<K> = Map<K, Set<K>>
-
   export type SCC<K> = { color: number, nodes: Set<K> }
 
   export const solveSCCs = <K>(graph: Graph<K>) => {

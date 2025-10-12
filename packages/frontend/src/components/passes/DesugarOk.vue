@@ -11,6 +11,6 @@ defineProps<{
 <template>
   <div class="desugar ok section">
     <div class="badge">desugar</div>
-    Internal AST: <NodeV :node="result.modInt" />
+    Desugared AST: <NodeV :node="result.modDes" />
   </div>
 </template>

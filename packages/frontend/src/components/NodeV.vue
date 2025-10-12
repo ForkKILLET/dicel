@@ -13,7 +13,6 @@ const props = withDefaults(defineProps<{
   parent?: Node<DRange & DId> | Node | null
 }>(), {
   parent: null,
-  selection: Selection,
 })
 
 const root = useTemplateRef('root')
@@ -52,7 +51,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV :node="node.no" :selection="selection" :parent="node" />
       </div>
     </span>
-    <span v-else-if="node.type === 'let'">
+    <span v-else-if="node.type === 'let' || node.type === 'letRes'">
       <span class="node-kw">let</span>
       <div v-for="binding, i of node.bindings" :key="i" class="node-block">
         <NodeV :node="binding" :selection="selection" :parent="node" />
@@ -62,12 +61,12 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV :node="node.body" :selection="selection" :parent="node" />
       </div>
     </span>
-    <span v-else-if="node.type === 'binding'">
+    <span v-else-if="node.type === 'binding' || node.type === 'bindingRes'">
       <NodeV :node="node.lhs" :selection="selection" :parent="node" />
       <span class="node-sym node-spaced">=</span>
       <NodeV :node="node.rhs" :selection="selection" :parent="node" />
     </span>
-    <span v-else-if="node.type === 'case'">
+    <span v-else-if="node.type === 'case' || node.type === 'caseRes'">
       <span class="node-kw">case</span>
       <NodeV :node="node.subject" :selection="selection" :parent="node" />
       <span class="node-kw node-spaced">of</span>
@@ -75,7 +74,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV :node="branch" :selection="selection" :parent="node" />
       </div>
     </span>
-    <span v-else-if="node.type === 'caseBranch'">
+    <span v-else-if="node.type === 'caseBranch' || node.type === 'caseBranchRes'">
       <NodeV :node="node.pattern" :selection="selection" :parent="node" />
       <span class="node-sym node-spaced">-&gt;</span>
       <NodeV :node="node.body" :selection="selection" :parent="node" />
@@ -103,19 +102,19 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <NodeV :node="node.op" :selection="selection" :parent="node" class="node-spaced-right" />
       <NodeV :node="node.arg" :selection="selection" :parent="node" />
     </span>
-    <span v-else-if="node.type === 'lambda'">
+    <span v-else-if="node.type === 'lambdaRes'">
       <span class="node-sym">\</span>
       <NodeV :node="node.param" :selection="selection" :parent="node" class="node-spaced-right" />
       <span class="node-sym node-spaced-right">-&gt;</span>
       <NodeV :node="node.body" :selection="selection" :parent="node" />
     </span>
-    <span v-else-if="node.type === 'lambdaMulti'">
+    <span v-else-if="node.type === 'lambdaMulti' || node.type === 'lambdaMultiRes'">
       <span class="node-sym">\</span>
       <NodeV v-for="param of node.params" :node="param" :selection="selection" :parent="node" class="node-spaced-right" />
       <span class="node-sym node-spaced-right">-&gt;</span>
       <NodeV :node="node.body" :selection="selection" :parent="node" />
     </span>
-    <span v-else-if="node.type === 'lambdaCase'">
+    <span v-else-if="node.type === 'lambdaCase' || node.type === 'lambdaCaseRes'">
       <span class="node-sym">\case</span>
       <div v-for="branch of node.branches" class="node-block">
         <NodeV :node="branch" :selection="selection" :parent="node" />
@@ -144,7 +143,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
     <span v-else-if="node.type === 'typeNode'">
       <TypeV :type="node.val" />
     </span>
-    <span v-else-if="node.type === 'def'">
+    <span v-else-if="node.type === 'def' || node.type === 'defRes'">
       <NodeV :node="node.binding" :selection="selection" :parent="node" />
     </span>
     <span v-else-if="node.type === 'decl'">
@@ -163,7 +162,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <span v-if="i < node.vars.length - 1" class="node-spaced-right">,</span>
       </template>
     </span>
-    <span v-else-if="node.type === 'dataDef'">
+    <span v-else-if="node.type === 'dataDecl'">
       <span class="node-kw node-spaced-right">data</span>
       <span class="node-con">{{ node.id }}</span>
       <template v-for="id of node.data.typeParams">
@@ -178,19 +177,19 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
     </span>
     <span v-else-if="node.type === 'import'">
       <span class="node-kw">import</span>
-      <span class="node-var">{{ node.modName }}</span>
+      <span class="node-var">{{ node.modId }}</span>
       (<template v-for="id, i of node.ids" :key="i">
         <NodeV :node="{ type: 'var', id }" :parent="node" />
         <span v-if="i < node.ids.length - 1" class="node-spaced-right">,</span>
       </template>)
     </span>
-    <span v-else-if="node.type === 'mod'">
+    <span v-else-if="node.type === 'mod' || node.type === 'modRes'">
       <div v-for="import_ of node.imports">
         <NodeV :node="import_" :selection="selection" :parent="node" />
       </div>
 
-      <div v-for="dataDef of node.dataDefs">
-        <NodeV :node="dataDef" :selection="selection" :parent="node" />
+      <div v-for="dataDecl of node.dataDecls">
+        <NodeV :node="dataDecl" :selection="selection" :parent="node" />
       </div>
 
       <div v-for="decl of node.decls">

@@ -1,12 +1,10 @@
-import { fromEntries, map, mapValues, mergeAll, pick, pipe } from 'remeda'
+import { entries, fromEntries, map, mapValues, mergeAll, pick, pipe, values } from 'remeda'
 import { Result } from 'fk-result'
 import { builtinVals } from './builtin'
 import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
-import { collectPatternVars } from './infer'
 import { Data } from './data'
-import { Binding, ExprInt, Mod, PatternInt } from './nodes'
-import { P } from 'ts-pattern'
-import { CompiledMod } from './std'
+import { Binding, BindingRes, ExprDes, Mod, ModDes, ModRes, PatternDes } from './nodes'
+import { CompiledMod } from './mods'
 
 export type Ref = { value: Value }
 export type ValueEnv = Record<string, Ref>
@@ -17,7 +15,7 @@ export namespace ValueEnv {
     (builtin): Ref => ({ value: builtin.value })
   )
 
-  export const resolve = (id: string, env: ValueEnv, expr: ExprInt): Value => {
+  export const resolve = (id: string, env: ValueEnv, expr: ExprDes): Value => {
     if (id in env) return env[id].value
     throw new EvaluateError(`Undefined variable '${id}' (unreachable)`, expr)
   }
@@ -41,7 +39,7 @@ export namespace Dice {
   }
 }
 
-export const evaluatePattern = (pattern: PatternInt, subject: Value): ValueEnv | null => {
+export const evaluatePattern = (pattern: PatternDes, subject: Value): ValueEnv | null => {
   switch (pattern.sub) {
     case 'wildcard':
       return {}
@@ -73,12 +71,11 @@ export const evaluatePattern = (pattern: PatternInt, subject: Value): ValueEnv |
   }
 }
 
-export const evaluateBindings = (bindings: Binding<{}, 'int'>[], env: ValueEnv) => {
-  const patternVars = bindings.flatMap(({ lhs }) => Array.from(collectPatternVars(lhs)))
+export const evaluateBindings = (bindings: BindingRes<{}, 'des'>[], idSet: Set<string>, env: ValueEnv) => {
   const envI = {
     ...env,
     ...pipe(
-      patternVars,
+      [...idSet],
       map((id): [string, Ref] => [
         id, { value: ErrValue(`Uninitialized variable '${id}'`) }
       ]),
@@ -95,12 +92,12 @@ export const evaluateBindings = (bindings: Binding<{}, 'int'>[], env: ValueEnv) 
 export class EvaluateError extends Error {
   name = 'EvaluateError'
 
-  constructor(msg: string, public expr: ExprInt) {
+  constructor(msg: string, public expr: ExprDes) {
     super(msg)
   }
 }
 
-export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
+export const evaluate = (expr: ExprDes, env: ValueEnv): Value => {
   const _eval = (): Value => {
     switch (expr.type) {
       case 'num':
@@ -114,12 +111,12 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
       }
       case 'var':
         return ValueEnv.resolve(expr.id, env, expr)
-      case 'let': {
-        const envP = evaluateBindings(expr.bindings, env)
+      case 'letRes': {
+        const envP = evaluateBindings(expr.bindings, expr.idSet, env)
         if (envP === null) throw new EvaluateError('Non-exhaustive patterns in let binding.', expr)
         return evaluate(expr.body, envP)
       }
-      case 'case': {
+      case 'caseRes': {
         const subject = evaluate(expr.subject, env)
         for (const branch of expr.branches) {
           const branchEnv = evaluatePattern(branch.pattern, subject)
@@ -133,7 +130,7 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
         Value.assert(func, 'func')
         return func.val(evaluate(expr.arg, env))
       }
-      case 'lambda':
+      case 'lambdaRes':
         return FuncValue((arg: Value) => {
           const envP = evaluatePattern(expr.param, arg)
           if (envP === null) throw new EvaluateError('Non-exhaustive patterns in param.', expr)
@@ -153,7 +150,7 @@ export const evaluate = (expr: ExprInt, env: ValueEnv): Value => {
   return val
 }
 
-export const execute = (expr: ExprInt, env: ValueEnv = ValueEnv.global()): Result<Value, EvaluateError> =>
+export const execute = (expr: ExprDes, env: ValueEnv = ValueEnv.global()): Result<Value, EvaluateError> =>
   Result.wrap(() => evaluate(expr, env))
 
 export namespace ExecuteMod {
@@ -163,22 +160,22 @@ export namespace ExecuteMod {
 }
 
 export const executeMod = (
-  mod: Mod<{}, 'int'>,
+  mod: ModDes,
   { compiledMods = {} }: Partial<ExecuteMod.Options> = {}
 ): Result<ValueEnv, EvaluateError | Error> => {
-  const importEnv = pipe(
-    mod.imports,
-    map(({ modName, ids }) => pick(compiledMods[modName].valueEnv, ids)),
+  const importEnv: ValueEnv = pipe(
+    entries(mod.importDict),
+    map(([id, { modId }]) => pick(compiledMods[modId].valueEnv, [id])),
     mergeAll,
   )
-  const dataValueEnv = pipe(
-    mod.dataDefs,
-    map(({ data }) => Data.getValueEnv(data)),
+  const dataValueEnv: ValueEnv = pipe(
+    values(mod.dataDict),
+    map((data) => Data.getValueEnv(data)),
     mergeAll,
   )
   const env = { ...ValueEnv.global(), ...importEnv, ...dataValueEnv }
   return Result
-    .wrap<ValueEnv, EvaluateError | Error>(() => evaluateBindings(mod.defs.map(def => def.binding), env))
+    .wrap<ValueEnv, EvaluateError | Error>(() => evaluateBindings(mod.defs.map(def => def.binding), mod.defIdSet, env))
     .tapErr(err => {
       if (! (err instanceof EvaluateError)) console.error(err)
     })

@@ -10,17 +10,11 @@ echo "switching $1 externals"
 
 case "$1" in
   (on)
-    if [[ -d $ROOT/externals.disabled ]]; then
-      mv $ROOT/externals.disabled $ROOT/externals
-      rm $ROOT/pnpm-lock.yaml
-      pnpm install
-    fi
+    pnpm link ~/src/fk-result
+    pnpm link ~/src/parsecond
     ;;
   (off)
-    if [[ -d $ROOT/externals ]]; then
-      mv $ROOT/externals $ROOT/externals.disabled
-      rm $ROOT/pnpm-lock.yaml
-      pnpm install
-    fi
+    pnpm unlink fk-result
+    pnpm unlink parsecond
     ;;
 esac

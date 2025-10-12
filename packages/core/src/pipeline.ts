@@ -2,16 +2,17 @@ import { Result } from 'fk-result'
 import { CheckMod, checkMod } from './check'
 import { Parse, parseMod } from './parse'
 import { EvaluateError, executeMod, ValueEnv } from './execute'
-import { TypeEnv } from './infer'
+import { KindEnv, TypeEnv } from './types'
 import { Value } from './values'
-import { Mod } from './nodes'
+import { ModRes, Mod, ModDes } from './nodes'
 import { Desugar, desugarMod } from './desugar'
 import { Last } from './utils'
-import { builtinMods } from './std'
+import { builtinMods } from './mods'
+import { Resolve, resolveMod } from './resolve'
 
 export namespace Pipeline {
-  export type PassSeq = ['parse', 'desugar', 'check', 'execute']
-  export const passSeq: PassSeq = ['parse', 'desugar', 'check', 'execute']
+  export type PassSeq = ['parse', 'resolve', 'desugar', 'check', 'execute']
+  export const passSeq: PassSeq = ['parse', 'resolve', 'desugar', 'check', 'execute']
   export type Pass = PassSeq[number]
 
   type _PassSeqGe<Px extends Pass, Ps extends Pass[]> =
@@ -54,7 +55,7 @@ export namespace Pipeline {
   export type PassLt<Px extends Pass> = PassSeqLt<Px>[number]
 
   export type Status = Record<Pass, boolean>
-  
+
   export type StatusLe<Px extends Pass> = Record<PassLe<Px>, true> & Record<PassGt<Px>, false>
   export type StatusLt<Px extends Pass, S extends boolean = false> = Record<PassLt<Px>, true> & Record<Px, S> & Record<PassGt<Px>, false>
 
@@ -69,10 +70,18 @@ export namespace Pipeline {
     err: Parse.Err
   }
 
-  export type DesugarOutput = ParseOutput & {
-    modInt: Mod<{}, 'int'>
+  export type ResolveOutput = ParseOutput & {
+    modRes: ModRes
+    kindEnv: KindEnv
   }
-  export type DesugarErr = ParseOutput & {
+  export type ResolveErr = ParseOutput & {
+    err: Resolve.Err
+  }
+
+  export type DesugarOutput = ResolveOutput & {
+    modDes: ModDes
+  }
+  export type DesugarErr = ResolveOutput & {
     err: Desugar.Err
   }
 
@@ -93,18 +102,21 @@ export namespace Pipeline {
 
   export type PassInputMap = {
     parse: Input
-    desugar: ParseOutput
+    resolve: ParseOutput
+    desugar: ResolveOutput
     check: DesugarOutput
     execute: CheckOutput
   }
   export type PassOutputMap = {
     parse: ParseOutput
+    resolve: ResolveOutput
     desugar: DesugarOutput
     check: CheckOutput
     execute: ExecuteOutput
   }
   export type PassErrMap = {
     parse: ParseErr
+    resolve: ResolveErr
     desugar: DesugarErr
     check: CheckErr
     execute: ExecuteErr
@@ -136,18 +148,23 @@ export namespace Pipeline {
         .map(mod => ({ ...state, parse: true, mod }))
         .mapErr(err => ({ ...state, parse: false, err })),
 
+    resolve: (state) =>
+      resolveMod(state.mod, { compiledMods: builtinMods })
+        .map(({ modRes, kindEnv }) => ({ ...state, resolve: true, modRes, kindEnv }))
+        .mapErr(err => ({ ...state, resolve: false, err })),
+
     desugar: (state) =>
-      desugarMod(state.mod)
-        .map(modInt => ({ ...state, desugar: true, modInt }))
+      desugarMod(state.modRes, { compiledMods: builtinMods })
+        .map(modDes => ({ ...state, desugar: true, modDes }))
         .mapErr(err => ({ ...state, desugar: false, err })),
 
     check: (state) =>
-      checkMod(state.modInt, { isMain: true, compiledMods: builtinMods })
+      checkMod(state.modDes, state.kindEnv, { isMain: true, prettifyTypes: true, compiledMods: builtinMods })
         .map(({ typeEnv }) => ({ ...state, check: true, typeEnv }))
         .mapErr(err => ({ ...state, check: false, err })),
 
     execute: (state) =>
-      executeMod(state.modInt, { compiledMods: builtinMods })
+      executeMod(state.modDes, { compiledMods: builtinMods })
         .map(valueEnv => ({
           ...state,
           execute: true,
@@ -160,6 +177,7 @@ export namespace Pipeline {
   export const inputState = (source: string): InputState => ({
     source,
     parse: false,
+    resolve: false,
     desugar: false,
     check: false,
     execute: false,
@@ -213,7 +231,7 @@ export class Runner {
   loadCache(source: string | null): RunnerCache.State {
     const { result } = this.cache
     const hit = result?.execute && (source === null || source === result.source)
-    return hit 
+    return hit
       ? { type: 'hit', input: result }
       : source
         ? { type: 'unhit', input: Pipeline.inputState(source) }

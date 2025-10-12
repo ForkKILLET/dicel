@@ -10,5 +10,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.13.1"
+  "packageManager": "pnpm@10.13.1",
+  "dependencies": {
+    "fk-result": "link:../fk-result",
+    "parsecond": "link:../parsecond"
+  }
 }

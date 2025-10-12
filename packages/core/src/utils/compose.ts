@@ -1,8 +1,9 @@
 import { entries, filter, fromEntries, pipe } from 'remeda'
+import { Err, Ok, Result } from 'fk-result'
 
-export const unsnoc = <T>(arr: T[]): [T[], T] => [
-  arr.slice(0, -1),
-  arr[arr.length - 1],
+export const unsnoc = <A>(as: A[]): [A[], A] => [
+  as.slice(0, -1),
+  as[as.length - 1],
 ]
 
 export const filterKeys = <T>(pred: (key: string) => boolean) =>
@@ -22,8 +23,8 @@ export const zip3 = <A, B, C>(as: A[], bs: B[], cs: C[]): [A, B, C][] => {
   return result
 }
 
-export const id = <T>(x: T): T => x
-export const the = id
+export const id = <A>(a: A): A => a
+export const the = <A>(a: NoInfer<A>): A => a
 
 export const describeToShow = <T, D>(
   describe: (input: T) => D,
@@ -37,3 +38,14 @@ export const describeToShow = <T, D>(
   return (input: T) => _show(null)(describe(input))
 }
 
+export const fromEntriesStrict = <K extends keyof any, V>(entries: Iterable<readonly [K, V]>): Result<Record<K, V>, K> => {
+  const record = {} as Record<K, V>
+  for (const [k, v] of entries) {
+    if (k in record) return Err(k)
+    record[k] = v
+  }
+  return Ok(record)
+}
+
+export const memberOf = <K extends keyof any>(record: Record<K, any>) =>
+  (key: keyof any): key is K => key in record

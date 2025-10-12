@@ -1,19 +1,19 @@
-import { match } from 'ts-pattern'
-import { pipe, range } from 'remeda'
-import { describeToShow, unsnoc } from './utils'
-import { generalize, TypeSubst } from './infer'
+import { match, P } from 'ts-pattern'
+import { mapValues, pipe, range } from 'remeda'
+import { describeToShow, Dict, unsnoc, Set } from './utils'
+import { generalize } from './infer'
 import { Value } from './values'
 
-export interface ConType<K extends string = string> {
+export type ConType = {
   sub: 'con'
   id: string
 }
-export const ConType = <K extends string>(id: K): ConType<K> => ({
+export const ConType = (id: string): ConType => ({
   sub: 'con',
   id,
 })
 
-export interface ApplyType {
+export type ApplyType = {
   sub: 'apply'
   func: Type
   arg: Type
@@ -61,7 +61,7 @@ export const FuncType = (param: Type, ret: Type): FuncType => ({
   ret,
 })
 
-export const FuncTypeCurried = <const As extends Type[]>(...types: As): Type => {
+export const FuncTypeCurried = (...types: Type[]): Type => {
   const [head, ...tail] = types
   return (tail.length
     ? FuncType(head, FuncTypeCurried(...tail))
@@ -144,41 +144,13 @@ export namespace Type {
   )
 }
 
-export type TypePair<T extends Type = Type, U extends Type = Type> = [T, U]
-export const TypePair = <T extends Type, U extends Type>(lhs: T, rhs: U): TypePair<T, U> => [lhs, rhs]
-export type HomoPair<T extends Type = Type> = TypePair<T, T>
-
-export const isHomoPair = (pair: TypePair): pair is HomoPair => pair[0].sub === pair[1].sub
-
-export type HomoPairMatcher<I extends Type, O, S extends TypeSub = TypeSub> = {
-  sub: <So extends S>(
-    this: HomoPairMatcher<I, O, S>,
-    sub: So,
-    fn: (pair: HomoPair<I & { sub: So }>) => O
-  ) => HomoPairMatcher<I, O, Exclude<S, So>>
-  exhaustive: [S] extends [never] ? () => O : never
-}
-export const matchHomoPair = <I extends Type, O>(pair: HomoPair<I>) => {
-  let result: O | null = null
-  const matcher = {
-    sub(sub: TypeSub, fn: (pair: TypePair) => O) {
-      if (pair[0].sub === sub) result = fn(pair)
-      return matcher
-    },
-    exhaustive(): O {
-      return result!
-    }
-  } as HomoPairMatcher<I, O, TypeSub>
-  return matcher
-}
-
 export type TypeScheme = {
   typeParamSet: Set<string>
   type: Type
 }
 export namespace TypeScheme {
   export const pure = (type: Type): TypeScheme => ({
-    typeParamSet: new Set,
+    typeParamSet: Set.empty(),
     type,
   })
 
@@ -192,8 +164,56 @@ export namespace TypeScheme {
     `${typeParamSet.size ? `∀ ${[...typeParamSet].join(' ')}. ` : ''}${Type.show(type)}`
 }
 
-export type TypeDict = Record<string, Type>
-export type TypeSchemeDict = Record<string, TypeScheme>
+export type TypeDict = Dict<Type>
+export type TypeSchemeDict = Dict<TypeScheme>
+
+
+export type TypeSubst = TypeDict
+export namespace TypeSubst {
+  export const empty = (): TypeSubst => ({})
+
+  const _applyScheme = (subst: TypeSubst) => (typeParamSet: Set<string>) => {
+    const _apply = (type: Type): Type => match(type)
+      .with({ sub: 'con' }, () => type)
+      .with({ sub: 'var' }, ({ id }) => typeParamSet.has(id) ? type : subst[id] ?? type)
+      .with({ sub: 'func' }, type => FuncType(_apply(type.param), _apply(type.ret)))
+      .with({ sub: 'apply' }, type => ApplyType(
+        _apply(type.func),
+        _apply(type.arg))
+      )
+      .exhaustive()
+    return _apply
+  }
+
+  export const apply = (subst: TypeSubst) => _applyScheme(subst)(Set.empty())
+
+  export const applyScheme = (subst: TypeSubst) =>
+    TypeScheme.map(({ typeParamSet, type }: TypeScheme) => _applyScheme(subst)(typeParamSet)(type))
+
+  export const applyDict = (subst: TypeSubst) =>
+    mapValues<TypeDict, Type>(apply(subst))
+
+  export const applySchemeDict = (subst: TypeSubst) =>
+    mapValues<TypeSchemeDict, TypeScheme>(applyScheme(subst))
+
+  export const compose = (substs: TypeSubst[]) => substs.reduceRight(
+    (composed, subst) => {
+      const applied = applyDict(subst)(composed)
+      return { ...subst, ...applied }
+    },
+    {}
+  )
+}
+
+export type TypeEnv = TypeSchemeDict
+export namespace TypeEnv {
+  export const empty = (): TypeEnv => ({})
+}
+
+export type KindEnv = Dict<Kind>
+export namespace KindEnv {
+  export const empty = (): KindEnv => ({})
+}
 
 export interface TypedValue {
   typeScheme: TypeScheme
@@ -204,7 +224,7 @@ export const TypedValue = <T extends Type>(type: T, value: Value): TypedValue =>
   value,
 })
 
-export type TypedValueEnv = Record<string, TypedValue>
+export type TypedValueEnv = Dict<TypedValue>
 
 export const prettify = (typeScheme: TypeScheme): TypeScheme => {
   const typeParamCount = typeScheme.typeParamSet.size
@@ -213,7 +233,85 @@ export const prettify = (typeScheme: TypeScheme): TypeScheme => {
   )
   const subst: TypeSubst = Object.fromEntries([...typeScheme.typeParamSet].map((id, i) => [id, VarType(typeParamList[i])]))
   return {
-    typeParamSet: new Set(typeParamList),
+    typeParamSet: Set.of(typeParamList),
     type: TypeSubst.apply(subst)(typeScheme.type),
   }
+}
+
+export type TypeKind = {
+  sub: 'type'
+}
+export const TypeKind = (): TypeKind => ({
+  sub: 'type'
+})
+
+export type FuncKind = {
+  sub: 'func'
+  param: Kind
+  ret: Kind
+}
+export const FuncKind = (param: Kind, ret: Kind): FuncKind => ({
+  sub: 'func',
+  param,
+  ret,
+})
+export const FuncKindCurried = (...types: Kind[]): Kind => {
+  const [head, ...tail] = types
+  return (tail.length
+    ? FuncKind(head, FuncKindCurried(...tail))
+    : head
+  )
+}
+export const FuncNKind = (n: number): Kind => FuncKindCurried(...range(0, n).map(() => TypeKind()))
+
+export type VarKind = {
+  sub: 'var'
+  id: string
+}
+export const VarKind = (id: string): VarKind => ({
+  sub: 'var',
+  id,
+})
+
+export type Kind =
+  | TypeKind
+  | FuncKind
+  | VarKind
+
+export namespace Kind {
+  export const show = (kind: Kind): string => match<Kind, string>(kind)
+    .with({ sub: 'type' }, () => 'Type')
+    .with({ sub: 'func' }, ({ param, ret }) =>
+      `${param.sub === 'func' ? `(${show(param)})` : show(param)} -> ${show(ret)}`
+    )
+    .with({ sub: 'var' }, ({ id }) => id)
+    .exhaustive()
+
+  export const needsParen = (self: Kind, parent: Kind | null): boolean => parent !== null && (
+    self.sub === 'func' && parent.sub === 'func' && parent.param === self
+  )
+}
+
+export type KindDict = Dict<Kind>
+export type KindSubst = KindDict
+
+export namespace KindSubst {
+  export const empty = (): KindSubst => ({})
+
+  export const apply = (subst: KindSubst) => (kind: Kind): Kind => match(kind)
+    .with({ sub: 'type' }, () => kind)
+    .with({ sub: 'var' }, ({ id }) => subst[id] ?? kind)
+    .with({ sub: 'func' }, kind => FuncKind(apply(subst)(kind.param), apply(subst)(kind.ret)))
+    .exhaustive()
+
+  export const applyDict = (subst: KindSubst) =>
+    mapValues<KindDict, Kind>(apply(subst))
+
+  export const compose = (substs: KindSubst[]) => substs.reduceRight(
+    (composed, subst) => {
+      const applied = applyDict(subst)(composed)
+      return { ...subst, ...applied }
+    },
+    {}
+  )
 }

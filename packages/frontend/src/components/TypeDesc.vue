@@ -11,10 +11,10 @@ const paren = computed(() => Type.needsParen(props.type, props.parent))
 </script>
 
 <template>
-  <span class="type">
+  <span class="type" :data-sub="type.sub">
     <template v-if="paren">(</template>
     <template v-if="type.sub === 'var'">
-      <span class="type-var">{{ type.rigid ? type.customId : type.id }}</span>
+      <span class="type-var">{{ type.id }}</span>
     </template>
     <template v-else-if="type.sub === 'con'">
       <span class="type-con">{{ type.id }}</span>
@@ -60,4 +60,5 @@ const paren = computed(() => Type.needsParen(props.type, props.parent))
 
 .type-var {
   color: ivory;
-}</style>
+}
+</style>

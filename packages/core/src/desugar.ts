@@ -1,129 +1,116 @@
 import { Result } from 'fk-result'
-import { match, P } from 'ts-pattern'
+import { match } from 'ts-pattern'
 import {
-  NumExpr, UnitExpr, VarExpr, LetExpr, CaseExpr, CondExpr, ApplyExpr, ExprInt, Binding, CaseBranch,
-  LambdaExpr, TypeNode, AnnExpr, PatternInt, Def, DataDef, Mod, NodeType, NodeInt, Node, Expr, Pattern,
-  Decl,
-  FixityDecl,
-  SectionLExpr,
-  SectionRExpr,
-  Import
+  NumExpr, UnitExpr, VarExpr, CondExpr, ApplyExpr, ExprDes, LambdaResExpr, TypeNode,
+  AnnExpr, PatternDes, Node, SectionLExpr, SectionRExpr, NodeResType, ModRes,
+  NodeRes, LetResExpr, BindingRes, DefRes, CaseBranchRes, CaseResExpr, PatternRes,
+  ModDes,
 } from './nodes'
-import { Fixity, ApplyExprCurried, LambdaExprCurried, builtinFixityTable, extractMaybeInfixOp } from './parse'
-import { id } from './utils'
-import { flatMap, fromEntries, pipe } from 'remeda'
+import { ApplyExprCurried, extractMaybeInfixOp, LambdaExprCurried } from './parse'
+import { Dict, Set, id } from './utils'
+import { Fixity, builtinFixityDict } from './lex'
+import { CompiledMod } from './mods'
+import { map, mergeAll, pipe, values } from 'remeda'
 
 export type DesugarMap = {
-  num: NumExpr<{}>
-  unit: UnitExpr<{}>
-  var: VarExpr<{}>
-  let: LetExpr<{}, 'int'>
-  case: CaseExpr<{}, 'int'>
-  cond: CondExpr<{}, 'int'>
-  roll: ApplyExpr<{}, 'int'>
-  apply: ApplyExpr<{}, 'int'>
-  applyMulti: ExprInt
-  binding: Binding<{}, 'int'>
-  caseBranch: CaseBranch<{}, 'int'>
-  lambda: LambdaExpr<{}, 'int'>
-  lambdaMulti: LambdaExpr<{}, 'int'>
-  typeNode: TypeNode<{}>
-  ann: AnnExpr<{}, 'int'>
-  infix: ExprInt
-  sectionL: ExprInt
-  sectionR: ExprInt
-  lambdaCase: LambdaExpr<{}, 'int'>
-  tuple: ExprInt
-  list: ExprInt
-  paren: ExprInt
-  pattern: PatternInt
-  def: Def<{}, 'int'>
-  decl: Decl<{}>
-  fixityDecl: FixityDecl<{}>
-  dataDef: DataDef<{}>
-  import: Import<{}>
-  mod: Mod<{}, 'int'>
+  unit: UnitExpr
+  num: NumExpr
+  var: VarExpr
+  letRes: LetResExpr<{}, 'des'>
+  caseRes: CaseResExpr<{}, 'des'>
+  cond: CondExpr<{}, 'des'>
+  roll: ApplyExpr<{}, 'des'>
+  applyMulti: ExprDes
+  bindingRes: BindingRes<{}, 'des'>
+  caseBranchRes: CaseBranchRes<{}, 'des'>
+  lambdaMultiRes: LambdaResExpr<{}, 'des'>
+  typeNode: TypeNode
+  ann: AnnExpr<{}, 'des'>
+  infix: ExprDes
+  sectionL: ExprDes
+  sectionR: ExprDes
+  lambdaCaseRes: LambdaResExpr<{}, 'des'>
+  tuple: ExprDes
+  list: ExprDes
+  paren: ExprDes
+  pattern: PatternDes
+  defRes: DefRes<{}, 'des'>
+  modRes: ModDes
 }
-export const assertDesugarMapComplete: Record<NodeType, NodeInt> = {} as DesugarMap
+export const assertDesugarMapCorrect: [NodeResType, keyof DesugarMap] =
+  {} as [keyof DesugarMap, NodeResType]
 
 export type DesugarInput = {
-  fixityTable: Record<string, Fixity>
+  fixityDict: Record<string, Fixity>
 }
 
 export type DesugarEnv = DesugarInput & {
-  desugar: <K extends NodeType>(node: Extract<Node, { type: K }>) => DesugarMap[K]
+  desugar: <K extends NodeResType>(node: Extract<NodeRes, { type: K }>) => DesugarMap[K]
   panic: (err: Desugar.Err) => never
   getFixity: (op: string) => Fixity
 }
 
 export type DesugarImpls = {
-  [K in NodeType]: (env: DesugarEnv, node: Node & { type: K }) => DesugarMap[K]
+  [K in NodeResType]: (env: DesugarEnv, node: Extract<NodeRes, { type: K }>) => DesugarMap[K]
 }
 
-export const DesugarImpls: DesugarImpls = {
-  num: (_env, expr): NumExpr<{}> => expr,
-  unit: (_env, expr): UnitExpr<{}> => expr,
-  var: (_env, expr): VarExpr<{}> => expr,
-  let: (env, expr): LetExpr<{}, 'int'> => ({
+export const desugarImpls: DesugarImpls = {
+  num: (_env, expr) => expr,
+  unit: (_env, expr) => expr,
+  var: (_env, expr) => expr,
+  letRes: (env, expr) => ({
     ...expr,
     bindings: expr.bindings.map(env.desugar),
     body: env.desugar(expr.body),
   }),
-  case: (env, expr): CaseExpr<{}, 'int'> => ({
+  caseRes: (env, expr) => ({
     ...expr,
     subject: env.desugar(expr.subject),
     branches: expr.branches.map(env.desugar),
   }),
-  cond: (env, expr): CondExpr<{}, 'int'> => ({
+  cond: (env, expr) => ({
     ...expr,
     cond: env.desugar(expr.cond),
     yes: env.desugar(expr.yes),
     no: env.desugar(expr.no),
   }),
-  roll: (env, expr): ApplyExpr<{}, 'int'> => env.desugar(ApplyExprCurried(
+  roll: (env, expr) => ApplyExprCurried(
     { type: 'var', id: 'roll' },
-    [expr.times ?? { type: 'num', val: 1 }, expr.sides]
-  )),
-  apply: (env, expr): ApplyExpr<{}, 'int'> => ({
-    ...expr,
-    func: env.desugar(expr.func),
-    arg: env.desugar(expr.arg),
-  }),
-  applyMulti: (env, expr): ExprInt => env.desugar(
-    ApplyExprCurried(expr.func, expr.args)
+    [expr.times ?? { type: 'num', val: 1 }, expr.sides].map(env.desugar),
   ),
-  binding: (env, expr): Binding<{}, 'int'> => ({
+  applyMulti: (env, expr) => ApplyExprCurried(
+    env.desugar(expr.func),
+    expr.args.map(env.desugar)
+  ),
+  bindingRes: (env, expr) => ({
     ...expr,
     lhs: env.desugar(expr.lhs),
     rhs: env.desugar(expr.rhs),
   }),
-  caseBranch: (env, expr): CaseBranch<{}, 'int'> => ({
+  caseBranchRes: (env, expr) => ({
     ...expr,
     pattern: env.desugar(expr.pattern),
     body: env.desugar(expr.body),
   }),
-  lambda: (env, expr): LambdaExpr<{}, 'int'> => ({
-    ...expr,
-    param: env.desugar(expr.param),
-    body: env.desugar(expr.body),
-  }),
-  lambdaMulti: (env, expr): LambdaExpr<{}, 'int'> => env.desugar(LambdaExprCurried(
-    expr.params, expr.body
-  )),
-  typeNode: (_env, expr): TypeNode<{}> => expr,
-  ann: (env, expr): AnnExpr<{}, 'int'> => ({
+  lambdaMultiRes: (env, expr) => LambdaExprCurried(
+    expr.params.map(env.desugar),
+    expr.idSets,
+    env.desugar(expr.body),
+  ),
+  typeNode: (_env, expr) => expr,
+  ann: (env, expr) => ({
     ...expr,
     expr: env.desugar(expr.expr),
   }),
-  infix: (env, expr): ExprInt => {
+  infix: (env, expr) => {
     const getFixity = (op: string): Fixity => env.getFixity(op)
 
     const ops = expr.ops.map(op => op.id)
     const args = expr.args.slice()
 
-    const exprStack: Expr[] = []
+    const exprStack: ExprDes[] = []
     const opStack: string[] = []
-    exprStack.push(args.shift()!)
+    exprStack.push(env.desugar(args.shift()!))
 
     const reduce = () => {
       const top = opStack.pop()!
@@ -131,7 +118,7 @@ export const DesugarImpls: DesugarImpls = {
       const left = exprStack.pop()!
       exprStack.push(ApplyExprCurried(
         { type: 'var', id: top, isInfix: true },
-        [left, right]
+        [left, right],
       ))
     }
 
@@ -162,15 +149,15 @@ export const DesugarImpls: DesugarImpls = {
 
       opStack.push(op)
 
-      const arg = args.shift()!
+      const arg = env.desugar(args.shift()!)
       exprStack.push(arg)
     }
 
     while (opStack.length) reduce()
 
-    return env.desugar(exprStack[0])
+    return exprStack[0]
   },
-  sectionL: (env, expr): ExprInt => {
+  sectionL: (env, expr) => {
     const arg = env.desugar(expr.arg)
     if (expr.arg.type === 'infix') {
       const argOp = extractMaybeInfixOp(arg)
@@ -183,14 +170,13 @@ export const DesugarImpls: DesugarImpls = {
         ) env.panic({ type: 'section', expr })
       }
     }
-
     return {
       type: 'apply',
       func: { type: 'var', id: expr.op.id },
       arg,
     }
   },
-  sectionR: (env, expr): ExprInt => {
+  sectionR: (env, expr) => {
     const arg = env.desugar(expr.arg)
     if (expr.arg.type === 'infix') {
       const argOp = extractMaybeInfixOp(arg)
@@ -205,41 +191,43 @@ export const DesugarImpls: DesugarImpls = {
     }
 
     return {
-      type: 'lambda',
+      type: 'lambdaRes',
       param: {
         type: 'pattern',
         sub: 'var',
         var: { type: 'var', id: '!lhs' },
       },
-      body: ApplyExprCurried<'int'>(
+      body: ApplyExprCurried(
         expr.op,
         [{ type: 'var', id: '!lhs' }, arg]
       ),
+      idSet: Set.of(['!lhs']),
     }
   },
-  lambdaCase: (env, expr): LambdaExpr<{}, 'int'> => ({
-    type: 'lambda',
+  lambdaCaseRes: (env, expr) => ({
+    type: 'lambdaRes',
     param: {
       type: 'pattern',
       sub: 'var',
       var: { type: 'var', id: '!subject' },
     },
     body: {
-      type: 'case',
+      type: 'caseRes',
       subject: { type: 'var', id: '!subject' },
       branches: expr.branches.map(env.desugar),
-    }
+    },
+    idSet: Set.of(['!subject']),
   }),
-  list: (env, { elems }): ExprInt => env.desugar(elems.reduceRight<Expr>(
-    (tail, head) => ApplyExprCurried({ type: 'var', id: '#' }, [head, tail]),
+  list: (env, { elems }) => elems.reduceRight<ExprDes>(
+    (tail, head) => ApplyExprCurried({ type: 'var', id: '#' }, [env.desugar(head), tail]),
     { type: 'var', id: '[]' }
-  )),
-  tuple: (env, { elems }): ExprInt => env.desugar(ApplyExprCurried(
+  ),
+  tuple: (env, { elems }) => ApplyExprCurried(
     { type: 'var', id: `${','.repeat(elems.length - 1)}` },
-    elems,
-  )),
-  paren: (env, { expr }): ExprInt => env.desugar(expr),
-  pattern: (env, pattern): PatternInt => match<Pattern, PatternInt>(pattern)
+    elems.map(env.desugar),
+  ),
+  paren: (env, { expr }) => env.desugar(expr),
+  pattern: (env, pattern) => match<PatternRes, PatternDes>(pattern)
     .with({ sub: 'con' }, pattern => ({
       ...pattern,
       con: env.desugar(pattern.con),
@@ -251,7 +239,7 @@ export const DesugarImpls: DesugarImpls = {
       con: { type: 'var', id: `${','.repeat(pattern.elems.length - 1)}` },
       args: pattern.elems.map(env.desugar)
     }))
-    .with({ sub: 'list' }, pattern => env.desugar(pattern.elems.reduceRight<Pattern>(
+    .with({ sub: 'list' }, pattern => env.desugar(pattern.elems.reduceRight<PatternRes>(
       (last, init) => ({
         type: 'pattern',
         sub: 'con',
@@ -266,54 +254,47 @@ export const DesugarImpls: DesugarImpls = {
       })
     )))
     .otherwise(id),
-  def: (env, def): Def<{}, 'int'> => ({
+  defRes: (env, def) => ({
     ...def,
     binding: env.desugar(def.binding)
   }),
-  decl: (_env, decl): Decl<{}> => decl,
-  fixityDecl: (_env, decl): FixityDecl<{}> => decl,
-  dataDef: (_env, def): DataDef<{}> => def,
-  import: (_env, import_): Import<{}> => import_,
-  mod: (env, mod): Mod<{}, 'int'> => ({
+  modRes: (env, mod) => ({
     ...mod,
     defs: mod.defs.map(env.desugar),
-  }),
+  })
 }
 
 export namespace Desugar {
-  export type Ok<K extends NodeType> = DesugarMap[K]
+  export type Ok<K extends NodeResType> = DesugarMap[K]
 
   export type Err =
     | { type: 'fixity', lOp: string, rOp: string, lFixity: Fixity, rFixity: Fixity }
-    | { type: 'section', expr: SectionLExpr | SectionRExpr }
+    | { type: 'section', expr: SectionLExpr<{}, 'res'> | SectionRExpr<{}, 'res'> }
+    | { type: 'conflict', id: string, node: Node }
+    | { type: 'duplicate', id: string, node: Node }
 
-  export type Res<K extends NodeType> = Result<Ok<K>, Err>
+  export type Res<K extends NodeResType> = Result<Ok<K>, Err>
 }
 
-export const checkSectionFixity = (env: DesugarEnv, op: string, arg: Expr): void => {
-
-}
-
-export const collectFixities = (mod: Mod): Record<string, Fixity> => pipe(
-  mod.fixityDecls,
-  flatMap(decl => decl.vars.map(({ id }) => [id, decl] as const)),
-  fromEntries(),
-)
-
-export const desugar = <K extends NodeType>(input: DesugarInput, node: Extract<Node, { type: K }>): Desugar.Res<K> => {
+export const desugar = <K extends NodeResType>(input: DesugarInput, node: Extract<NodeRes, { type: K }>): Desugar.Res<K> => {
   const env: DesugarEnv = {
     ...input,
-    desugar: <K extends NodeType>(node: Extract<Node, { type: K }>): DesugarMap[K] =>
-      DesugarImpls[node.type](env, node),
+    desugar: <K extends NodeResType>(node: Extract<NodeRes, { type: K }>): DesugarMap[K] =>
+      desugarImpls[node.type](env, node),
     panic: (err: Desugar.Err) => { throw err },
-    getFixity: (op: string) => env.fixityTable[op] ?? Fixity.def(),
+    getFixity: (op: string) => env.fixityDict[op] ?? Fixity.def(),
   }
   return Result.wrap<Desugar.Ok<K>, Desugar.Err>(() => env.desugar(node))
 }
 
-export const desugarMod = (mod: Mod): Desugar.Res<'mod'> => {
+export const desugarMod = (mod: ModRes, { compiledMods }: { compiledMods: Dict<CompiledMod> }): Desugar.Res<'modRes'> => {
+  const compiledFixityDict = pipe(
+    values(compiledMods),
+    map(mod => mod.fixityDict),
+    mergeAll,
+  )
   return desugar(
-    { fixityTable: { ...builtinFixityTable, ...collectFixities(mod) } },
+    { fixityDict: { ...builtinFixityDict, ...compiledFixityDict, ...mod.fixityDict } },
     mod
   )
 }

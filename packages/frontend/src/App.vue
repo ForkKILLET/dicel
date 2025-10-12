@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   Runner, RunnerCache,
-  type Node, type DRange, type DId, 
+  type Node, type DRange, type DId,
 } from '@dicel/core'
 import { Selection } from './utils/selectable'
 
@@ -13,6 +13,8 @@ import DesugarOk from './components/passes/DesugarOk.vue'
 import ExecuteResult from './components/passes/ExecuteResult.vue'
 import ParseErr from './components/passes/ParseErr.vue'
 import DesugarErr from './components/passes/DesugarErr.vue'
+import ResolveOk from './components/passes/ResolveOk.vue'
+import ResolveErr from './components/passes/ResolveErr.vue'
 
 declare global {
   interface Window {
@@ -74,19 +76,25 @@ const rightEl = useTemplateRef('rightEl')
         <template v-if="result.parse">
           <ParseOk :result="result" :selection="selection" />
           <Teleport :to="leftEl">
-            <template v-if="result.desugar">
-              <DesugarOk :result="result" />
+            <template v-if="result.resolve">
+              <ResolveOk :result="result" />
               <Teleport :to="leftEl">
-                <template v-if="result.check" >
-                  <CheckOk :result="result" />
-                  <Teleport :to="rightEl">
-                    <ExecuteResult :result="result" :runner="runner" :runner-cache="runnerCache" />
+                <template v-if="result.desugar">
+                  <DesugarOk :result="result" />
+                  <Teleport :to="leftEl">
+                    <template v-if="result.check" >
+                      <CheckOk :result="result" />
+                      <Teleport :to="rightEl">
+                        <ExecuteResult :result="result" :runner="runner" :runner-cache="runnerCache" />
+                      </Teleport>
+                    </template>
+                    <CheckErr v-else :err="result.err" />
                   </Teleport>
                 </template>
-                <CheckErr v-else :err="result.err" />
+                <DesugarErr v-else :err="result.err" />
               </Teleport>
             </template>
-            <DesugarErr v-else :err="result.err" />
+            <ResolveErr v-else :err="result.err" />
           </Teleport>
         </template>
         <ParseErr v-else :err="result.err" />

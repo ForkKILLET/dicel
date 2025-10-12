@@ -4,18 +4,29 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  fk-result: link:../fk-result
+  parsecond: link:../parsecond
+
 importers:
 
-  .: {}
+  .:
+    dependencies:
+      fk-result:
+        specifier: link:../fk-result
+        version: link:../fk-result
+      parsecond:
+        specifier: link:../parsecond
+        version: link:../parsecond
 
   packages/core:
     dependencies:
       fk-result:
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: link:../../../fk-result
+        version: link:../../../fk-result
       parsecond:
-        specifier: ^0.9.1
-        version: 0.9.1
+        specifier: link:../../../parsecond
+        version: link:../../../parsecond
       remeda:
         specifier: ^2.32.0
         version: 2.32.0
@@ -45,8 +56,8 @@ importers:
         specifier: ^13.9.0
         version: 13.9.0(vue@3.5.21(typescript@5.8.3))
       fk-result:
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: link:../../../fk-result
+        version: link:../../../fk-result
       remeda:
         specifier: ^2.32.0
         version: 2.32.0
@@ -61,8 +72,8 @@ importers:
         specifier: ^0.7.0
         version: 0.7.0(typescript@5.8.3)(vue@3.5.21(typescript@5.8.3))
       parsecond:
-        specifier: ^0.9.1
-        version: 0.9.1
+        specifier: link:../../../parsecond
+        version: link:../../../parsecond
       typescript:
         specifier: ~5.8.3
         version: 5.8.3
@@ -759,9 +770,6 @@ packages:
       picomatch:
         optional: true
 
-  fk-result@0.4.0:
-    resolution: {integrity: sha512-lFcRWHSmru+HSRZzbg4d8nfSnxh3dS+GPQ3BEccg7r9XcmmpBXJRgUe7QfGnBXk5FhpgcglQxUbx/jqM7aBT2A==}
-
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -806,9 +814,6 @@ packages:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
-
-  parsecond@0.9.1:
-    resolution: {integrity: sha512-DFXI05Psou9JzqG7CNl+7eGkZoIeuLJDX2QADCXW/ZZ1LCB5gPv4PEpBYuLaJCu0TXsH6+xQdqsA1/WeY6qXZA==}
 
   path-browserify@1.0.1:
     resolution: {integrity: sha512-b7uo2UCUOYZcnF/3ID0lulOJi/bafxa1xPe7ZPsammBSpjSWQkjNxlt635YGS2MiR9GjvuXCtz2emr3jbsz98g==}
@@ -1589,8 +1594,6 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.3
 
-  fk-result@0.4.0: {}
-
   fsevents@2.3.3:
     optional: true
 
@@ -1619,10 +1622,6 @@ snapshots:
   muggle-string@0.4.1: {}
 
   nanoid@3.3.11: {}
-
-  parsecond@0.9.1:
-    dependencies:
-      fk-result: 0.4.0
 
   path-browserify@1.0.1: {}
 

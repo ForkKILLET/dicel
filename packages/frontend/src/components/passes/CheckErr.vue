@@ -19,7 +19,7 @@ defineProps<{
           <div class="check-err-block"><TypeSourced :type="err.err.rhs" /></div>
         because {{
           err.err.type === 'Recursion' ? 'of recursion' :
-          err.err.type === 'DiffSub' ? 'they are of different shapes' :
+          err.err.type === 'DiffShape' ? 'they are of different shapes' :
           err.err.type === 'DiffCon' ? 'they are different constructors' :
           err.err.type === 'RigidVar' ? `the variable '${err.err.var}' is rigid` :
           'of unknown reasons'
@@ -34,12 +34,15 @@ defineProps<{
       <template v-else-if="err.type === 'NoMain'">
         Undefined variable 'main'.
       </template>
-      <template v-else-if="err.type === 'UnknownMod'">
-        Unknown module '{{ err.modName }}'.
-      </template>
       <template v-else-if="err.type === 'UnknownImport'">
-        Module '{{ err.modName }}' has no exported symbol '{{ err.id }}'.
-    </template>
+        Module '{{ err.modId }}' has no exported symbol '{{ err.id }}'.
+      </template>
+      <template v-else-if="err.type === 'ConflictDefs'">
+        Conflict definitions for '{{ err.id }}'.
+      </template>
+      <template v-else-if="err.type === 'DuplicateDecls'">
+        Duplicate declarations for '{{ err.id }}'.
+      </template>
     </div>
   </div>
 </template>

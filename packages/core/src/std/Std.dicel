@@ -4,9 +4,52 @@ id = \x -> x
 const :: a -> b -> a
 const = \x y -> x
 
+flip :: (a -> b -> c) -> b -> a -> c
+flip = \f x y -> f y x
+
+(|>) :: a -> (a -> b) -> b
+(|>) = \x f -> f x
+
+($) :: (a -> b) -> a -> b
+($) = \f x -> f x
+
+(.) :: (b -> c) -> (a -> b) -> a -> c
+(.) = \f g x -> f (g x)
+
+inf :: Num
+inf = 1 / 0
+
 map :: (a -> b) -> List a -> List b
 map = \f xs -> case xs of
   [] -> []
   x#xs -> f x # map f xs
 
 (<$>) = map
+infixl 4 <$>
+
+(++) :: List a -> List a -> List a
+(++) = \xs ys ->
+  case xs of
+    [] -> ys
+    x#xs -> x # (xs ++ ys)
+
+data Bool = True | False
+
+(||) :: Bool -> Bool -> Bool
+(||) = \x y -> case x of
+  True -> True
+  False -> y
+
+(&&) :: Bool -> Bool -> Bool
+(&&) = \x y -> case x of
+  True -> y
+  False -> False
+
+not :: Bool -> Bool
+not = \x -> case x of
+  True -> False
+  False -> True
+
+data Maybe a = Just a | Nothing
+
+data Either a b = Left a | Right b

@@ -1,79 +1,117 @@
 import { Err, Ok, Result } from 'fk-result'
-import { builtinEnv } from './builtin'
-import { generalize, Infer, TypeEnv } from './infer'
-import { prettify, TypeScheme, TypeSchemeDict } from './types'
-import { map, mapValues, mergeAll, pipe } from 'remeda'
-import { filterKeys } from './utils'
+import { builtinKindEnv, builtinTypeEnv } from './builtin'
+import { generalize, TypeInferer, InferType, InferKind, KindInferer } from './infer'
+import { prettify, TypeScheme, TypeEnv, KindEnv, KindSubst, Kind } from './types'
+import { entries, fromEntries, map, mapValues, mergeAll, pipe } from 'remeda'
+import { Dict, filterKeys } from './utils'
 import { Data } from './data'
-import { ExprInt, Mod } from './nodes'
-import { CompiledMod } from './std'
+import { ExprDes, Import, Mod, ModDes } from './nodes'
+import { CompiledMod, ResolvedMod } from './mods'
+import { isUpper } from './lex'
 
 export namespace Check {
   export type Ok = {
     typeScheme: TypeScheme
   }
 
-  export type Err = Infer.Err
+  export type Err = InferType.Err
 
   export type Res = Result<Ok, Err>
 }
 
 export namespace CheckMod {
   export type Ok = {
-    typeEnv: TypeSchemeDict
+    typeEnv: TypeEnv
   }
 
   export type Err =
-    | Infer.Err
+    | InferType.Err
     | { type: 'NoMain' }
-    | { type: 'UnknownMod', modName: string }
-    | { type: 'UnknownImport', modName: string, id: string }
+    | { type: 'UnknownImport', modId: string, id: string }
 
   export type Res = Result<Ok, Err>
 
   export type Options = {
     isMain: boolean
-    compiledMods: Record<string, CompiledMod>
+    prettifyTypes: boolean
+    compiledMods: Dict<CompiledMod>
   }
 }
 
-export const check = (expr: ExprInt): Check.Res => new Infer()
-  .infer(expr, builtinEnv)
+export const check = (expr: ExprDes): Check.Res => new TypeInferer()
+  .infer(expr, builtinTypeEnv)
   .map(({ type }) => ({ typeScheme: prettify(generalize(type)) }))
 
 export const checkMod = (
-  mod: Mod<{}, 'int'>,
+  mod: ModDes,
+  kindEnv: KindEnv,
   { isMain = false, compiledMods = {} }: Partial<CheckMod.Options> = {},
 ): CheckMod.Res => {
-  const importEnv: TypeEnv = {}
-  for (const { modName, ids } of mod.imports) {
-    if (! (modName in compiledMods)) return Err({ type: 'UnknownMod', modName })
-    const { typeEnv } = compiledMods[modName]
-    for (const id of ids) {
-      if (! (id in typeEnv)) return Err({ type: 'UnknownImport', modName, id })
-      importEnv[id] = typeEnv[id]
-    }
+  const importTypeEnv = TypeEnv.empty()
+  for (const [id, { modId }] of entries(mod.importDict)) {
+    const { typeEnv } = compiledMods[modId]
+    if (id in typeEnv) importTypeEnv[id] = typeEnv[id]
+    else if (! (id in kindEnv)) return Err({ type: 'UnknownImport', modId, id })
   }
 
   const bindings = mod.defs.map(def => def.binding)
 
-  const dataEnv = pipe(
-    mod.dataDefs,
-    map(({ id, data }) => Data.getEnv(id, data)),
+  const dataTypeEnv = pipe(
+    entries(mod.dataDict),
+    map(([id, data]) => Data.getEnv(id, data)),
     mergeAll,
   )
 
-  return new Infer()
-    .inferBindings(bindings, mod.decls, { ...importEnv, ...builtinEnv, ...dataEnv }, mod)
-    .bind(({ env, varIds }) =>
+  const baseTypeEnv = { ...importTypeEnv, ...builtinTypeEnv, ...dataTypeEnv }
+
+  return new TypeInferer()
+    .inferBindings(bindings, mod.declDict, baseTypeEnv, mod)
+    .bind(({ env, varIds }): CheckMod.Res =>
       ! isMain || varIds.has('main')
-        ? Ok({
-          typeEnv: pipe(
-            env,
-            filterKeys(key => varIds.has(key)),
-            mapValues(prettify),
-          )
-        })
+        ? Ok({ typeEnv: env })
         : Err({ type: 'NoMain' })
+    )
+}
+
+export namespace CheckKindMod {
+  export type Ok = {
+    kindEnv: KindEnv
+  }
+
+  export type Err =
+    | InferKind.Err
+    | { type: 'UnknownImport', modId: string, id: string }
+
+  export type Res = Result<Ok, Err>
+
+  export type Options = {
+    compiledMods: Dict<CompiledMod>
+  }
+}
+
+export const checkKindMod = (
+  mod: Mod,
+  importDict: Dict<Import>,
+  { compiledMods = {} }: CheckKindMod.Options
+): CheckKindMod.Res => {
+  const importKindEnv = KindEnv.empty()
+  for (const [id, { modId }] of entries(importDict)) {
+    if (! isUpper(id[0])) continue
+    const { kindEnv, typeEnv } = compiledMods[modId]
+    if (id in kindEnv) importKindEnv[id] = kindEnv[id]
+    else if (! (id in typeEnv)) return Err({ type: 'UnknownImport', modId, id })
+  }
+
+  const baseKindEnv = { ...builtinKindEnv, ...importKindEnv }
+
+  const kindInferer = new KindInferer()
+
+  return kindInferer
+    .inferDataDecls(mod.dataDecls, baseKindEnv)
+    .bind(({ env: envData }) => kindInferer
+      .inferDecls(mod.decls, envData)
+      .map(({ subst: substDecl }) => ({
+        kindEnv: KindSubst.applyDict(substDecl)(envData)
+      }))
     )
 }

@@ -5,12 +5,11 @@ import { ApplyTypeCurried, ConType, FuncType, Type, uncurryApplyType, VarType } 
 import { unsnoc } from './utils'
 import {
   DRange, DId,
-  NumExpr, TupleExpr, UnitExpr, VarExpr, Expr, ListExpr, ApplyExpr, InfixExpr,
+  NumExpr, TupleExpr, UnitExpr, VarExpr, ListExpr, ApplyExpr, InfixExpr,
   CondExpr, Binding, LetExpr, WildcardPattern, NumPattern, UnitPattern, ConPattern, VarPattern,
-  CaseBranch, CaseExpr, LambdaExpr, LambdaCaseExpr, AnnExpr, Def, Mod, DataDef, Node, Pattern,
+  CaseBranch, CaseExpr, LambdaResExpr, LambdaCaseExpr, AnnExpr, Def, Mod, DataDecl, Pattern,
   ApplyMultiExpr, RollExpr,
   withId,
-  ExprType,
   TuplePattern,
   ListPattern,
   LambdaMultiExpr,
@@ -19,9 +18,12 @@ import {
   SectionLExpr,
   SectionRExpr,
   ParenExpr,
-  NodeStage,
-  ExprS,
-  Import
+  ImportDecl,
+  PatternS,
+  ExprDes,
+  NodeRaw,
+  ExprRaw,
+  ExprRawType
 } from './nodes'
 import { isLower, isUpper, RESERVE_WORDS, SYMBOL_CHARS } from './lex'
 
@@ -60,14 +62,25 @@ const getCol = (state: ParserState): number => {
   return state.index - index - 1
 }
 
+const pWhite = p.many(
+  p.notEmpty(p.join(p.seq([
+    p.join(p.many(p.char(' '))),
+    p.alt([
+      p.join(p.seq([p.str('--'), p.join(p.many(p.noneOf('\n')))])),
+      p.pure(''),
+    ]),
+    p.join(p.many(p.char('\n'))),
+  ])))
+)
+
 const pLayoutBegin = <T, E>(parser: Parser<T, E>): Parser<T, E> =>
   p.bind(
-    p.many(p.oneOf(' \n')),
+    pWhite,
     () => state => parser({ ...state, layout: [getCol(state), ...state.layout] }),
   )
 
 const pLayout = <T, E>(parser: Parser<T, E>): Parser<T, E | null> => p.bindValState(
-  p.many(p.oneOf(' \n')),
+  pWhite,
   (({ state, val }) => {
     if (val.length && state.rest && getCol(state) <= state.layout[0]) return p.fail(null)
     return parser
@@ -75,7 +88,7 @@ const pLayout = <T, E>(parser: Parser<T, E>): Parser<T, E | null> => p.bindValSt
 )
 
 const pLayoutAligned = <T, E>(parser: Parser<T, E>): Parser<T, E | null> => p.bindValState(
-  p.many(p.oneOf(' \n')),
+  pWhite,
   (({ state, val }) => {
     if (val.length && getCol(state) < state.layout[0]) return p.fail(null)
     return parser
@@ -99,7 +112,7 @@ const pSpace = pLayout(p.pure(null))
 const pSpaced = p.right(pSpace)
 const pSpacedAround = p.delimitedBy(pSpace, pSpace)
 
-const pRanged = <T extends Node, E>(parser: Parser<T, E>): Parser<T & DRange, E> =>
+const pRanged = <T extends NodeRaw, E>(parser: Parser<T, E>): Parser<T & DRange, E> =>
   oldState => parser(oldState).map(({ val, state }) => ({
     val: {
       ...val,
@@ -160,7 +173,7 @@ export const pParenExprInner: P<ParenExpr<DRange>> = p.lazy(() => pRanged(p.map(
   expr => ({ type: 'paren', expr })
 )))
 
-export const pParenExpr: P<Expr<DRange>> = p.lazy(() => pRanged(p.parens(
+export const pParenExpr: P<ExprRaw<DRange>> = p.lazy(() => pRanged(p.parens(
   pSpacedAround(p.alt([
     pTupleExprInner,
     pSectionLExprInner,
@@ -174,7 +187,7 @@ export const pParenExpr: P<Expr<DRange>> = p.lazy(() => pRanged(p.parens(
 export const pListExpr: P<ListExpr<DRange>> = p.lazy(() => pRanged(p.map(
   p.brackets(pSpacedAround(p.alt([
     p.sep(pExpr, pSpacedAround(p.char(','))),
-    p.pure<Expr<DRange>[]>([]),
+    p.pure<ExprRaw<DRange>[]>([]),
   ]))),
   (elems) => ({
     type: 'list',
@@ -182,7 +195,7 @@ export const pListExpr: P<ListExpr<DRange>> = p.lazy(() => pRanged(p.map(
   })
 )))
 
-export const pPrimaryExpr: P<Expr<DRange>> = p.lazy(() => p.alt([
+export const pPrimaryExpr: P<ExprRaw<DRange>> = p.lazy(() => p.alt([
   pParenExpr,
   pListExpr,
   pNum,
@@ -215,24 +228,24 @@ export const pRollExpr: P<RollExpr<DRange>> = p.map(
 
 export const pRollExprL = p.alt([pRollExpr, pPrimaryExpr])
 
-export const ApplyExprCurried = <S extends NodeStage = 'raw'>(func: ExprS<{}, S>, args: ExprS<{}, S>[]): ApplyExpr<{}, S> => (args.length
+export const ApplyExprCurried = (func: ExprDes, args: ExprDes[]): ApplyExpr<{}, 'des'> => (args.length
   ? pipe(
     unsnoc(args),
-    ([args, arg]): ApplyExpr => ({
+    ([args, arg]) => ({
       type: 'apply',
       func: ApplyExprCurried(func, args),
       arg,
     })
   )
   : func
-) as ApplyExpr<{}, S>
+) as ApplyExpr<{}, 'des'>
 
-export const uncurryApplyExpr = (expr: ApplyExpr<DRange>): Expr<DRange>[] => expr.func.type === 'apply'
-    ? [...uncurryApplyExpr(expr.func), expr.arg]
-    : [expr.func, expr.arg]
+export const uncurryApplyExpr = (expr: ApplyExpr<DRange, 'des'>): ExprDes<DRange>[] => expr.func.type === 'apply'
+  ? [...uncurryApplyExpr(expr.func), expr.arg]
+  : [expr.func, expr.arg]
 
-export const extractMaybeInfixOp = (expr: Expr) => {
-  if (expr.type === 'apply' && expr.func.type === 'apply' && expr.func.func.type === 'var' && expr.func.func.isInfix) 
+export const extractMaybeInfixOp = (expr: ExprDes) => {
+  if (expr.type === 'apply' && expr.func.type === 'apply' && expr.func.func.type === 'var' && expr.func.func.isInfix)
     return expr.func.func.id
   return null
 }
@@ -250,47 +263,6 @@ export const pApplyExpr: P<ApplyMultiExpr<DRange>> = pRanged(p.lazy(() => p.map(
 )))
 export const pApplyExprL = p.lazy(() => p.alt([pApplyExpr, pRollExprL, pLetExpr, pCaseExpr]))
 
-export type Assoc = 'left' | 'right' | 'none'
-export type Fixity = {
-  prec: number
-  assoc: Assoc
-}
-
-export namespace Fixity {
-  export const of = (prec: number, assoc: Assoc): Fixity => ({
-    prec,
-    assoc,
-  })
-
-  export const def = () => of(9, 'left')
-
-  export const show = ({ assoc, prec }: Fixity): string => 
-    `infix${assoc === 'none' ? '' : assoc[0]} ${prec}`
-}
-export type FixityTable = Record<string, Fixity>
-
-export const builtinFixityTable: FixityTable = {
-  '.': Fixity.of(9, 'right'),
-  '^': Fixity.of(8, 'right'),
-  '*': Fixity.of(7, 'left'),
-  '/': Fixity.of(7, 'left'),
-  '%': Fixity.of(7, 'left'),
-  '+': Fixity.of(6, 'left'),
-  '-': Fixity.of(6, 'left'),
-  '++': Fixity.of(5, 'right'),
-  '#': Fixity.of(5, 'right'),
-  '==': Fixity.of(4, 'none'),
-  '!=': Fixity.of(4, 'none'),
-  '<': Fixity.of(4, 'none'),
-  '<=': Fixity.of(4, 'none'),
-  '>': Fixity.of(4, 'none'),
-  '>=': Fixity.of(4, 'none'),
-  '&&': Fixity.of(3, 'right'),
-  '||': Fixity.of(2, 'right'),
-  '|>': Fixity.of(1, 'left'),
-  '$': Fixity.of(0, 'right'),
-}
-
 export const pInfixExpr: P<InfixExpr<DRange>> = pRanged(p.map(
   p.seq([
     pApplyExprL,
@@ -299,7 +271,7 @@ export const pInfixExpr: P<InfixExpr<DRange>> = pRanged(p.map(
   ([head, tail]) => pipe(
     tail.reduce<{
       ops: VarExpr<DRange>[],
-      args: Expr<DRange>[]
+      args: ExprRaw<DRange>[]
     }>(
       ({ ops, args }, [op, arg]) => ({
         ops: [...ops, op],
@@ -334,7 +306,7 @@ export const pSectionRExprInner: P<SectionRExpr<DRange>> = pRanged(p.map(
   })
 ))
 
-export const pCondExpr: P<Expr<DRange>> = p.lazy(() => p.map(
+export const pCondExpr: P<ExprRaw<DRange>> = p.lazy(() => p.map(
   p.seq([
     pInfixExprL,
     p.many(p.map(
@@ -344,11 +316,11 @@ export const pCondExpr: P<Expr<DRange>> = p.lazy(() => p.map(
         pSpacedAround(p.char(':')),
         pInfixExprL,
       ]),
-      ([, yes, , no]): [Expr<DRange>, Expr<DRange>] => [yes, no]
+      ([, yes, , no]): [ExprRaw<DRange>, ExprRaw<DRange>] => [yes, no]
     ))
   ]),
   seq => pipe(reverseSeq(seq), ([head, tail]) =>
-    tail.reduce<Expr<DRange>>(
+    tail.reduce<ExprRaw<DRange>>(
       (no, [yes, cond]): CondExpr<DRange> => ({
         type: 'cond',
         cond,
@@ -508,12 +480,17 @@ export const pCaseExpr: P<CaseExpr<DRange>> = p.lazy(() => p.map(
   }))
 )
 
-export const LambdaExprCurried = ([param, ...params]: Pattern[], body: Expr): LambdaExpr => ({
-  type: 'lambda',
+export const LambdaExprCurried = (
+  [param, ...params]: PatternS<{}, 'des'>[],
+  [idSet, ...idSets]: Set<string>[],
+  body: ExprDes,
+): LambdaResExpr<{}, 'des'> => ({
+  type: 'lambdaRes',
   param,
   body: ! params.length
     ? body
-    : LambdaExprCurried(params, body),
+    : LambdaExprCurried(params, idSets, body),
+  idSet,
 })
 
 export const pLambdaMultiExpr: P<LambdaMultiExpr<DRange>> = p.lazy(() => pRanged(p.map(
@@ -547,7 +524,18 @@ export const pConType: P<ConType> = p.map(
   ConType,
 )
 
-export const pParenType: P<Type> = p.lazy(() => p.parens(pType))
+export const pTupleTypeInner: P<Type> = p.lazy(() => p.map(
+  p.sep1(pType, pSpacedAround(p.char(','))),
+  elems => ApplyTypeCurried(ConType(`${','.repeat(elems.length - 1)}`), ...elems)
+))
+
+export const pUnitTypeInner: P<Type> = p.pure(ConType(''))
+
+export const pParenType: P<Type> = p.lazy(() => p.parens(p.alt([
+  pTupleTypeInner,
+  pType,
+  pUnitTypeInner,
+])))
 
 export const pPrimaryType: P<Type> = p.lazy(() => p.alt([
   pParenType,
@@ -584,7 +572,7 @@ export const pTypeNode = (pSomeType: P<Type>) => pRanged(p.map(pSomeType, val =>
   val,
 })))
 
-export const pTermExpr: P<Expr<DRange>> = pRanged(p.alt([
+export const pTermExpr: P<ExprRaw<DRange>> = pRanged(p.alt([
   pLetExpr,
   pCaseExpr,
   pLambdaCaseExpr,
@@ -601,7 +589,7 @@ export const pAnnExpr: P<AnnExpr<DRange>> = pRanged(p.map(
   })
 ))
 
-export const pExpr: P<Expr<DRange>> = p.alt([
+export const pExpr: P<ExprRaw<DRange>> = p.alt([
   pAnnExpr,
   pTermExpr,
 ])
@@ -639,7 +627,7 @@ export const pFixityDecl: P<FixityDecl<DRange>> = pRanged(p.map(
   })
 ))
 
-export const pDataDef: P<DataDef<DRange>> = pRanged(p.lazy(() => p.bind(
+export const pDataDecl: P<DataDecl<DRange>> = pRanged(p.lazy(() => p.bind(
   p.seq([
     p.str('data'),
     pSpaced(pCon),
@@ -663,10 +651,11 @@ export const pDataDef: P<DataDef<DRange>> = pRanged(p.lazy(() => p.bind(
           : Err(ParseErr('NotAConstructor', { type: func }))
       ))
     )
-    .map((cons): DataDef => ({
-      type: 'dataDef',
+    .map((cons): DataDecl => ({
+      type: 'dataDecl',
       id,
       data: {
+        id,
         typeParams: typeParams.map(({ id }) => id),
         cons,
       }
@@ -674,7 +663,7 @@ export const pDataDef: P<DataDef<DRange>> = pRanged(p.lazy(() => p.bind(
   ))
 ))
 
-export const pImport: P<Import<DRange>> = pRanged(p.map(
+export const pImport: P<ImportDecl<DRange>> = pRanged(p.map(
   p.seq([
     p.str('import'),
     pSpaced(pIdentBig),
@@ -686,22 +675,22 @@ export const pImport: P<Import<DRange>> = pRanged(p.map(
       p.pure([]),
     ]))))),
   ]),
-  ([, modName, vars]) => ({
+  ([, modId, vars]) => ({
     type: 'import',
-    modName,
+    modId,
     ids: vars?.map(({ id }) => id) ?? [],
   })
 ))
 
 export const pMod: P<Mod<DRange>> = p.map(
-  p.ranged(pBlock(p.alt([pImport, pFixityDecl, pDecl, pDef, pDataDef]))),
+  p.ranged(pBlock(p.alt([pImport, pFixityDecl, pDecl, pDef, pDataDecl]))),
   ({ val: defs, range }) => pipe(
     defs,
     groupByProp('type'),
     ({
       import: imports = [],
       def: defs = [],
-      dataDef: dataDefs = [],
+      dataDecl: dataDecls = [],
       fixityDecl: fixityDecls = [],
       decl: decls = [],
     }): Mod<DRange> => ({
@@ -710,24 +699,21 @@ export const pMod: P<Mod<DRange>> = p.map(
       defs,
       decls,
       fixityDecls,
-      dataDefs,
+      dataDecls,
       range,
     })
   )
 )
 
-export const parseExpr = (input: string): PRes<Expr<DRange & DId>> =>
-  p.map(p.ended(pSpacedAround(pExpr)), withId<ExprType, DRange>)({
+export type LayoutParser<T> = (input: string) => PRes<T>
+export const runLayoutParser = <T>(parser: P<T>): LayoutParser<T> =>
+  input => p.ended(pSpacedAround(parser))({
     input,
     index: 0,
     rest: input,
     layout: [-1],
   }).map(({ val }) => val)
 
-export const parseMod = (input: string): PRes<Mod<DRange & DId>> =>
-  p.map(p.ended(pSpacedAround(pMod)), withId<'mod', DRange>)({
-    input,
-    index: 0,
-    rest: input,
-    layout: [-1],
-  }).map(({ val }) => val)
+export const parseExpr: LayoutParser<ExprRaw<DRange & DId>> = runLayoutParser(p.map(pExpr, withId<ExprRawType, DRange>))
+
+export const parseMod: LayoutParser<Mod<DRange & DId>> = runLayoutParser(p.map(pMod, withId<'mod', DRange>))
