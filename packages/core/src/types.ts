@@ -1,8 +1,9 @@
-import { match, P } from 'ts-pattern'
-import { mapValues, pipe, range } from 'remeda'
-import { describeToShow, Dict, unsnoc, Set } from './utils'
-import { generalize } from './infer'
+import { match } from 'ts-pattern'
+import { fromEntries, map, mapValues, pipe, range } from 'remeda'
+import { describeToShow, Dict, unsnoc, EqSet } from './utils'
+import { generalize, TypeVarState } from './infer'
 import { Value } from './values'
+import { isSymbol, isSymbolOrComma } from './lex'
 
 export type ConType = {
   sub: 'con'
@@ -43,12 +44,15 @@ export const VarType = (id: string): VarType => ({
   id,
   rigid: false,
 })
-export const RigidVarType = (id: string, customId: string): VarType => ({
+export const RigidVarType = (id: string, customId = id): VarType => ({
   sub: 'var',
   id,
   rigid: true,
   customId,
 })
+
+export const VarTypeSet = EqSet<string, VarType>(varType => varType.id)
+export type VarTypeSet = EqSet<string, VarType>
 
 export type FuncType = {
   sub: 'func'
@@ -132,7 +136,8 @@ export namespace Type {
   export const needsParen = (self: TypeDesc, parent: TypeDesc | null): boolean => parent !== null && (
     self.sub === 'func' && parent.sub === 'func' ||
     self.sub === 'func' && parent.sub === 'apply' ||
-    self.sub === 'apply' && parent.sub !== 'func'
+    self.sub === 'apply' && parent.sub !== 'func' ||
+    self.sub === 'con' && isSymbolOrComma(self.id)
   )
 
   export const show = describeToShow(
@@ -151,16 +156,15 @@ export namespace Type {
 }
 
 export type TypeScheme = {
-  typeParamSet: Set<string>
+  typeParamSet: VarTypeSet
   type: Type
 }
 export namespace TypeScheme {
   export const pure = (type: Type): TypeScheme => ({
-    typeParamSet: Set.empty(),
+    typeParamSet: VarTypeSet.empty(),
     type,
   })
-
-  export const map = (transform: (typeScheme: TypeScheme) => Type) =>
+  export const mapType = (transform: (typeScheme: TypeScheme) => Type) =>
     (typeScheme: TypeScheme) => pipe(typeScheme, ({ typeParamSet }): TypeScheme => ({
       typeParamSet,
       type: transform(typeScheme),
@@ -168,6 +172,32 @@ export namespace TypeScheme {
 
   export const show = ({ type, typeParamSet }: TypeScheme): string =>
     `${typeParamSet.size ? `∀ ${[...typeParamSet].join(' ')}. ` : ''}${Type.show(type)}`
+
+  export const prettify = (typeScheme: TypeScheme): TypeScheme => {
+    const typeParamCount = typeScheme.typeParamSet.size
+    const typeParams = [...typeScheme.typeParamSet]
+    const prettyIds = typeParamCount <= 3
+      ? [...'abc']
+      : range(0, typeParamCount).map(i => `t${i + 1}`)
+
+    const allRigid = typeParams.every(param => param.rigid)
+
+    if (allRigid) return typeScheme
+
+    const subst = TypeSubst.empty()
+    const typeParamSet = VarTypeSet.empty()
+
+    typeParams.forEach((param, i) => {
+      const newParam = RigidVarType(param.id, prettyIds[i])
+      subst[param.id] = newParam
+      typeParamSet.add(newParam)
+    })
+
+    return {
+      typeParamSet,
+      type: TypeSubst.apply(subst)(typeScheme.type),
+    }
+  }
 }
 
 export type TypeDict = Dict<Type>
@@ -178,10 +208,10 @@ export type TypeSubst = TypeDict
 export namespace TypeSubst {
   export const empty = (): TypeSubst => ({})
 
-  const _applyScheme = (subst: TypeSubst) => (typeParamSet: Set<string>) => {
+  const _applyScheme = (subst: TypeSubst) => (typeParamSet: VarTypeSet) => {
     const _apply = (type: Type): Type => match(type)
       .with({ sub: 'con' }, () => type)
-      .with({ sub: 'var' }, ({ id }) => typeParamSet.has(id) ? type : subst[id] ?? type)
+      .with({ sub: 'var' }, var_ => typeParamSet.has(var_) ? type : subst[var_.id] ?? type)
       .with({ sub: 'func' }, type => FuncType(_apply(type.param), _apply(type.ret)))
       .with({ sub: 'apply' }, type => ApplyType(
         _apply(type.func),
@@ -191,10 +221,10 @@ export namespace TypeSubst {
     return _apply
   }
 
-  export const apply = (subst: TypeSubst) => _applyScheme(subst)(Set.empty())
+  export const apply = (subst: TypeSubst) => _applyScheme(subst)(VarTypeSet.empty())
 
   export const applyScheme = (subst: TypeSubst) =>
-    TypeScheme.map(({ typeParamSet, type }: TypeScheme) => _applyScheme(subst)(typeParamSet)(type))
+    TypeScheme.mapType(({ typeParamSet, type }: TypeScheme) => _applyScheme(subst)(typeParamSet)(type))
 
   export const applyDict = (subst: TypeSubst) =>
     mapValues<TypeDict, Type>(apply(subst))
@@ -232,17 +262,12 @@ export const TypedValue = <T extends Type>(type: T, value: Value): TypedValue =>
 
 export type TypedValueEnv = Dict<TypedValue>
 
-export const prettify = (typeScheme: TypeScheme): TypeScheme => {
-  const typeParamCount = typeScheme.typeParamSet.size
-  const typeParamList = range(0, typeParamCount).map(i =>
-    typeParamCount <= 3 ? String.fromCharCode('a'.charCodeAt(0) + i) : `t${i + 1}`
-  )
-  const subst: TypeSubst = Object.fromEntries([...typeScheme.typeParamSet].map((id, i) => [id, VarType(typeParamList[i])]))
-  return {
-    typeParamSet: Set.of(typeParamList),
-    type: TypeSubst.apply(subst)(typeScheme.type),
-  }
-}
+export const rigidifyType = (type: Type): Type => match(type)
+  .with({ sub: 'var' }, var_ => RigidVarType(var_.id))
+  .with({ sub: 'con' }, () => type)
+  .with({ sub: 'func' }, type => FuncType(rigidifyType(type.param), rigidifyType(type.ret)))
+  .with({ sub: 'apply' }, type => ApplyType(rigidifyType(type.func), rigidifyType(type.arg)))
+  .exhaustive()
 
 export type TypeKind = {
   sub: 'type'

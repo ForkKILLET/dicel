@@ -246,11 +246,11 @@ export type DataDecl<D = {}> = D & {
 export type ImportDecl<D = {}> = D & {
   type: 'import'
   modId: string
-  ids: string[]
+  ids: string[] | null
 }
 
 export type Import = {
-  modId: string
+  idSet: Set<string> | null
 }
 
 export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {

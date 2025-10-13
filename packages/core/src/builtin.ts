@@ -1,5 +1,5 @@
 import { entries, map, mapValues, mergeAll, pipe, values } from 'remeda'
-import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, ApplyTypeCurried, TypedValueEnv, TypedValue, ApplyType, KindEnv, TypeEnv, FuncKind, FuncNKind, TypeKind } from './types'
+import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, ApplyTypeCurried, TypedValueEnv, TypedValue, ApplyType, KindEnv, TypeEnv, FuncKind, FuncNKind, TypeKind, RigidVarType } from './types'
 import { Data, DataEnv, KindedDataEnv } from './data'
 import { ErrValue, FuncValue, FuncValue2, FuncValueJ, FuncValueJ2, NumValue } from './values'
 import { Dice } from './execute'
@@ -82,16 +82,18 @@ export const builtinFuncs: TypedValueEnv = {
   ),
 }
 
+const VarTypes = (...ids: string[]) => ids.map(VarType)
+
 export const builtinData: KindedDataEnv = {
   'Num': {
     id: 'Num',
-    typeParams: [],
+    typeParams: VarTypes(),
     cons: [],
     kind: FuncNKind(1),
   },
   '': {
     id: '',
-    typeParams: [],
+    typeParams: VarTypes(),
     cons: [
       { id: '', params: [] }
     ],
@@ -99,7 +101,7 @@ export const builtinData: KindedDataEnv = {
   },
   '[]': {
     id: '[]',
-    typeParams: ['a'],
+    typeParams: VarTypes('a'),
     cons: [
       { id: '[]', params: [] },
       { id: '#', params: [VarType('a'), ApplyTypeCurried(ConType('[]'), VarType('a'))] },
@@ -108,7 +110,7 @@ export const builtinData: KindedDataEnv = {
   },
   ',': {
     id: ',',
-    typeParams: ['a', 'b'],
+    typeParams: VarTypes('a', 'b'),
     cons: [
       { id: ',', params: [VarType('a'), VarType('b')] }
     ],
@@ -116,7 +118,7 @@ export const builtinData: KindedDataEnv = {
   },
   ',,': {
     id: ',,',
-    typeParams: ['a', 'b', 'c'],
+    typeParams: VarTypes('a', 'b', 'c'),
     cons: [
       { id: ',,', params: [VarType('a'), VarType('b'), VarType('c')] }
     ],
@@ -124,7 +126,7 @@ export const builtinData: KindedDataEnv = {
   },
   ',,,': {
     id: ',,,',
-    typeParams: ['a', 'b', 'c', 'd'],
+    typeParams: VarTypes('a', 'b', 'c', 'd'),
     cons: [
       { id: ',,,', params: [VarType('a'), VarType('b'), VarType('c'), VarType('d')] }
     ],

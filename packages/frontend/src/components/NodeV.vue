@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { type DId, type DRange, isSymbol, isUpper, Node } from '@dicel/core'
+import { type DId, type DRange, isSymbol, isUpper, Node, Type } from '@dicel/core'
 
 import { computed, useTemplateRef } from 'vue'
 import { Selection, useSelectable } from '../utils/selectable'
@@ -165,9 +165,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
     <span v-else-if="node.type === 'dataDecl'">
       <span class="node-kw node-spaced-right">data</span>
       <span class="node-con">{{ node.id }}</span>
-      <template v-for="id of node.data.typeParams">
-        <span class="node-var node-spaced-left">{{ id }}</span>
-      </template>
+      <TypeV v-for="param of node.data.typeParams" :key="param.id" :type="param" class="node-spaced-left" />
       <span class="node-sym node-spaced">=</span>
       <template v-for="con, i of node.data.cons" :key="i">
         <span v-if="i > 0" class="node-sym node-spaced">|</span>

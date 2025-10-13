@@ -165,7 +165,10 @@ export const executeMod = (
 ): Result<ValueEnv, EvaluateError | Error> => {
   const importEnv: ValueEnv = pipe(
     entries(mod.importDict),
-    map(([id, { modId }]) => pick(compiledMods[modId].valueEnv, [id])),
+    map(([modId, { idSet }]) => {
+      const { valueEnv } = compiledMods[modId]
+      return idSet ? pick(valueEnv, [...idSet]) : valueEnv
+    }),
     mergeAll,
   )
   const dataValueEnv: ValueEnv = pipe(
@@ -175,7 +178,9 @@ export const executeMod = (
   )
   const env = { ...ValueEnv.global(), ...importEnv, ...dataValueEnv }
   return Result
-    .wrap<ValueEnv, EvaluateError | Error>(() => evaluateBindings(mod.defs.map(def => def.binding), mod.defIdSet, env))
+    .wrap<ValueEnv, EvaluateError | Error>(() =>
+      evaluateBindings(mod.defs.map(def => def.binding), mod.defIdSet, env)
+    )
     .tapErr(err => {
       if (! (err instanceof EvaluateError)) console.error(err)
     })

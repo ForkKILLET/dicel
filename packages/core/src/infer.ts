@@ -1,12 +1,10 @@
 import { match } from 'ts-pattern'
-import { flatMap, fromEntries, keys, map, mapValues, mergeAll, omit, pick, pipe, reduce, unique, values } from 'remeda'
+import { fromEntries, keys, map, mapValues, mergeAll, omit, pick, pipe, prop, reduce, tap, unique, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
-import { Type, ConType, VarType, FuncType, TypeScheme, ApplyType, FuncTypeCurried, RigidVarType, Kind, KindEnv, TypeEnv, TypeSubst, VarKind, FuncKind, KindSubst, TypeKind, FuncKindCurried } from './types'
+import { Type, ConType, VarType, FuncType, TypeScheme, ApplyType, FuncTypeCurried, RigidVarType, Kind, KindEnv, TypeEnv, TypeSubst, VarKind, FuncKind, KindSubst, TypeKind, FuncKindCurried, VarTypeSet } from './types'
 import { BindingRes, DataDecl, Decl, ExprDes, Node, PatternDes } from './nodes'
-import { Map, the, Set, Graph, Dict, memberOf } from './utils'
+import { Map, the, Set, Graph, Dict, memberOf, equalBy, EqSet, Iter } from './utils'
 import { SubbedPair } from './utils/match'
-import { Data } from './data'
-
 
 export type TypedBinding = {
   binding: BindingRes<{}, 'des'>
@@ -216,34 +214,38 @@ export class TypeVarState extends VarState {
   }
 
   instantiate(scheme: TypeScheme): Type {
-    const subst = TypeSubst.compose([...scheme.typeParamSet].map(id => ({ [id]: this.fresh() })))
+    const subst: TypeSubst = pipe(
+      scheme.typeParamSet,
+      Array.from<VarType>,
+      map(({ id }) => [id, this.fresh()] as const),
+      fromEntries(),
+    )
     return TypeSubst.apply(subst)(scheme.type)
   }
 
   skolemize(type: Type): Type {
-    const subst = TypeSubst.compose([...collectTypeTypeVars(type)].map(id => ({ [id]: this.freshRigid(id) })))
+    const subst = pipe(
+      collectTypeTypeVars(type),
+      Array.from<VarType>,
+      map(({ id }) => [id, this.freshRigid(id)] as const),
+      fromEntries(),
+    )
     return TypeSubst.apply(subst)(type)
   }
 }
 
-export class KindVarState extends VarState {
-  fresh() {
-    return VarKind(this.nextId())
-  }
-}
-
-export const collectTypeTypeVars = (type: Type): Set<string> => match<Type, Set<string>>(type)
-  .with({ sub: 'var' }, ({ id }) => Set.of([id]))
-  .with({ sub: 'con' }, () => Set.empty())
+export const collectTypeTypeVars = (type: Type): VarTypeSet => match<Type, VarTypeSet>(type)
+  .with({ sub: 'var' }, VarTypeSet.solo)
+  .with({ sub: 'con' }, VarTypeSet.empty)
   .with({ sub: 'func' }, ({ param, ret }) =>
-    Set.union([collectTypeTypeVars(param), collectTypeTypeVars(ret)])
+    VarTypeSet.union([collectTypeTypeVars(param), collectTypeTypeVars(ret)])
   )
   .with({ sub: 'apply' }, ({ func, arg }) =>
-    Set.union([collectTypeTypeVars(func), collectTypeTypeVars(arg)])
+    VarTypeSet.union([collectTypeTypeVars(func), collectTypeTypeVars(arg)])
   )
   .exhaustive()
 
-export const collectTypeSchemeTypeVars = (scheme: TypeScheme): Set<string> =>
+export const collectTypeSchemeTypeVars = (scheme: TypeScheme): VarTypeSet =>
   collectTypeTypeVars(scheme.type).difference(scheme.typeParamSet)
 
 export const collectExprVars = (expr: ExprDes): Set<string> => match<ExprDes, Set<string>>(expr)
@@ -257,8 +259,8 @@ export const collectExprVars = (expr: ExprDes): Set<string> => match<ExprDes, Se
   .with({ type: 'cond' }, ({ cond, yes, no }) =>
     Set.union([collectExprVars(cond), collectExprVars(yes), collectExprVars(no)])
   )
-  .with({ type: 'lambdaRes' }, ({ param, body, idSet: ids }) =>
-    collectExprVars(body).difference(ids)
+  .with({ type: 'lambdaRes' }, ({ body, idSet }) =>
+    collectExprVars(body).difference(idSet)
   )
   .with({ type: 'letRes' }, ({ bindings, body, idSet: ids }) =>
     Set.union([collectExprVars(body), ...bindings.map(({ rhs }) => collectExprVars(rhs))]).difference(ids)
@@ -266,8 +268,8 @@ export const collectExprVars = (expr: ExprDes): Set<string> => match<ExprDes, Se
   .with({ type: 'var' }, ({ id }) => Set.of([id]))
   .otherwise(() => Set.empty())
 
-export const generalize = (type: Type, existingTypeVars = Set.empty<string>()): TypeScheme => ({
-  typeParamSet: collectTypeTypeVars(type).difference(existingTypeVars),
+export const generalize = (type: Type, boundTypeVars: ReadonlySetLike<VarType> = Set.empty()): TypeScheme => ({
+  typeParamSet: collectTypeTypeVars(type).difference(boundTypeVars),
   type,
 })
 
@@ -528,17 +530,17 @@ export class TypeInferer {
               })
               .mapErr(Unify.wrapErr)
               .map(({ substC, envC }) => {
-                const existingTypeVars = pipe(
+                const boundTypeVars = pipe(
                   envC,
                   omit(varIds),
                   values(),
                   map(collectTypeSchemeTypeVars),
-                  Set.union,
+                  VarTypeSet.union,
                 )
                 const envGi = pipe(
                   envC,
                   pick(keys(envHi)),
-                  mapValues(({ type }) => generalize(type, existingTypeVars))
+                  mapValues(({ type }) => generalize(type, boundTypeVars))
                 )
                 return {
                   substC,
@@ -752,6 +754,12 @@ export const collectKindKindVars = (kind: Kind): Set<string> => match<Kind, Set<
   )
   .exhaustive()
 
+export class KindVarState extends VarState {
+  fresh() {
+    return VarKind(this.nextId())
+  }
+}
+
 export namespace InferDataKind {
   export type Ok = {
     env: KindEnv
@@ -854,11 +862,11 @@ export class KindInferer {
 
     const envH: KindEnv = pipe(
       data.typeParams,
-      map(param => [param, this.kvs.fresh()] as const),
-      fromEntries(),
+      map(param => [param.id, this.kvs.fresh()] as const),
+      Dict.fromEntries,
     )
 
-    const dataKindA = FuncKindCurried(...data.typeParams.map(param => envH[param]), TypeKind())
+    const dataKindA = FuncKindCurried(...data.typeParams.map(param => envH[param.id]), TypeKind())
     return unifyKind(env[data.id], dataKindA)
       .mapErr(UnifyKind.wrapErr)
       .bind(dataSubst => {
@@ -914,10 +922,11 @@ export class KindInferer {
   inferDecl(decl: Decl, env = KindEnv.empty()): InferDeclKind.Res {
     const annType = decl.ann.val
     const envH: KindEnv = pipe(
-      collectTypeTypeVars(annType),
-      Set.toArray,
-      map(param => [param, this.kvs.fresh()] as const),
-      fromEntries(),
+      annType,
+      collectTypeTypeVars,
+      Iter.from,
+      Iter.map(param => [param.id, this.kvs.fresh()] as const),
+      Dict.fromEntries,
     )
     return this
       .infer(annType, { ...env, ...envH })

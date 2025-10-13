@@ -21,14 +21,14 @@
 - (.) modules
   - (v) top level definitions
   - (v) declarations
-  - (v) import
+  - (.) import
     - (v) import values
     - (v) import types & fixities
+    - ( ) qualified import
   - (v) stdlib
-  - ( ) prelude
+  - (v) prelude
 
 - (v) check kind
-  - ( ) kinded type scheme
 
 ---
 

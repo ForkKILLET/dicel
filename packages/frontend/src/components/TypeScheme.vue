@@ -10,16 +10,16 @@ defineProps<{
 <template>
   <div class="type-scheme">
     <span v-if="typeScheme.typeParamSet.size">
-      <span class="type-scheme-op">∀</span>
-      <span
-        v-for="id, i of typeScheme.typeParamSet"
-        :key="id"
-        class="type-var"
+      <span class="node-sym">∀</span>
+      <Type
+        v-for="param, i of typeScheme.typeParamSet"
+        :key="param.id"
+        :type="param"
         :class="{ 'node-spaced-left': i > 0 }"
-      >{{ id }}</span>
-      <span class="type-scheme-op node-spaced-right">.</span>
+      />
+      <span class="node-sym node-spaced-right">.</span>
     </span>
-    <Type :type="typeScheme.type" /> 
+    <Type :type="typeScheme.type" />
   </div>
 </template>
 
@@ -30,13 +30,5 @@ defineProps<{
   vertical-align: top;
   font-family: monospace;
   color: lightgrey;
-}
-
-.type-var {
-  color: ivory;
-}
-
-.type-scheme-op {
-  color: lightcoral;
 }
 </style>

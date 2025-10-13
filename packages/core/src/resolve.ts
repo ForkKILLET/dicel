@@ -7,12 +7,13 @@ import {
   SectionRExpr,
 } from './nodes'
 import { Dict, fromEntriesStrict, Set } from './utils'
-import { flatMap, map, pick, pipe, prop, unique, values } from 'remeda'
+import { flatMap, groupBy, groupByProp, map, mapValues, pick, pipe, prop, unique, values } from 'remeda'
 import { match } from 'ts-pattern'
 import { InferKind } from './infer'
 import { checkKindMod } from './check'
 import { CompiledMod } from './mods'
 import { KindEnv } from './types'
+import { group } from 'console'
 
 export type ResolveMap = {
   unit: UnitExpr
@@ -175,23 +176,33 @@ export const resolveImpls: ResolveImpls = {
     ...expr,
     expr: env.resolve(expr.expr),
   }),
-  mod: (env, mod) => {
+  mod: (env, { ...mod }) => {
+    const importModIdSet = pipe(
+      mod.imports,
+      map(prop('modId')),
+      unique(),
+      Set.of,
+    )
+
+    if (! importModIdSet.has('Prelude') && 'Prelude' in env.compiledMods) {
+      mod.imports = [{ type: 'import', modId: 'Prelude', ids: null }, ...mod.imports]
+      importModIdSet.add('Prelude')
+    }
+
     for (const { modId } of mod.imports) {
       if (! (modId in env.compiledMods)) env.panic({ type: 'UnknownMod', modId })
     }
 
     const importDict = pipe(
       mod.imports,
-      flatMap(import_ => import_.ids.map(id => [id, pick(import_, ['modId'])] as const)),
-      fromEntriesStrict,
-      env.unwrapConflictDef,
+      groupByProp('modId'),
+      mapValues(imports => ({
+        idSet: imports.some(({ ids }) => ids === null)
+          ? null
+          : Set.of(flatMap(imports, ({ ids }) => ids!))
+      })),
     )
-    const importModIds = pipe(
-      values(importDict),
-      map(prop('modId')),
-      unique(),
-      Set.of,
-    )
+
     const declDict = pipe(
       mod.decls,
       flatMap(decl => decl.vars.map(({ id }) => [id, decl] as const)),
@@ -220,28 +231,25 @@ export const resolveImpls: ResolveImpls = {
     )
 
     const defs = mod.defs.map(env.resolve)
-    const defIds = pipe(
+    const defIdSet = pipe(
       mod.defs,
       map(def => def.binding.lhs),
       collectPatternListVarsStrict,
       env.unwrapConflictDef,
     )
 
-    for (const id in importDict) {
-      if (defIds.has(id)) env.panic({ type: 'ConflictDef', id })
-    }
     for (const id in declDict) {
-      if (! defIds.has(id)) env.panic({ type: 'MissingDef', id })
+      if (! defIdSet.has(id)) env.panic({ type: 'MissingDef', id })
     }
 
     const modRes: ModRes = {
       ...mod,
       type: 'modRes',
       defs,
-      defIdSet: defIds,
+      defIdSet,
       dataConIdSet,
       importDict,
-      importModIdSet: importModIds,
+      importModIdSet,
       declDict,
       fixityDict,
       dataDict,
@@ -310,7 +318,7 @@ export namespace ResolveMod {
 export const resolveMod = (mod: Mod, { compiledMods = {} }: ResolveMod.Options = {}): ResolveMod.Res => {
   return resolve({ compiledMods }, mod)
     .bind(modRes =>
-      checkKindMod(mod, modRes.importDict, { compiledMods })
+      checkKindMod(modRes, { compiledMods })
         .map(({ kindEnv }) => ({
           modRes,
           kindEnv,

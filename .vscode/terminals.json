@@ -8,13 +8,6 @@
       "execute": false
     },
     {
-      "name": "@dicel/repl dev",
-      "description": "dev",
-      "cwd": "./packages/repl",
-      "command": "pnpm dev",
-      "execute": false
-    },
-    {
       "name": "@dicel/frontend dev",
       "description": "dev",
       "cwd": "./packages/frontend",

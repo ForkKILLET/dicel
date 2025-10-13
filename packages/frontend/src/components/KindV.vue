@@ -16,26 +16,17 @@ const withParen = computed(() => Kind.needsParen(props.kind, props.parent))
   <span class="kind" :data-sub="kind.sub">
     <template v-if="withParen">(</template>
     <template v-if="kind.sub === 'var'">
-      <span class="kind-var">{{ kind.id }}</span>
+      <span class="node-var">{{ kind.id }}</span>
     </template>
     <template v-else-if="kind.sub === 'type'">
-      <span class="kind-con">Type</span>
+      <span class="node-con">*</span>
     </template>
     <template v-else-if="kind.sub === 'func'">
       <KindV :kind="kind.param" :parent="kind" />
-      <span class="kind-op node-spaced">-&gt;</span>
+      <span class="node-op node-spaced">-&gt;</span>
       <KindV :kind="kind.ret" :parent="kind" />
     </template>
     <template v-if="withParen">)</template>
   </span>
 </template>
 
-<style>
-.kind-op {
-  color: lightcoral;
-}
-
-.kind-con {
-  color: lightgreen;
-}
-</style>

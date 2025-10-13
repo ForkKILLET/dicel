@@ -1,12 +1,12 @@
 import { Err, Ok, Result } from 'fk-result'
 import { builtinKindEnv, builtinTypeEnv } from './builtin'
 import { generalize, TypeInferer, InferType, InferKind, KindInferer } from './infer'
-import { prettify, TypeScheme, TypeEnv, KindEnv, KindSubst, Kind } from './types'
-import { entries, fromEntries, map, mapValues, mergeAll, pipe } from 'remeda'
-import { Dict, filterKeys } from './utils'
+import { TypeScheme, TypeEnv, KindEnv, KindSubst } from './types'
+import { entries, map, mergeAll, pipe } from 'remeda'
+import { Dict } from './utils'
 import { Data } from './data'
-import { ExprDes, Import, Mod, ModDes } from './nodes'
-import { CompiledMod, ResolvedMod } from './mods'
+import { ExprDes, Import, Mod, ModDes, ModRes } from './nodes'
+import { CompiledMod } from './mods'
 import { isUpper } from './lex'
 
 export namespace Check {
@@ -40,7 +40,7 @@ export namespace CheckMod {
 
 export const check = (expr: ExprDes): Check.Res => new TypeInferer()
   .infer(expr, builtinTypeEnv)
-  .map(({ type }) => ({ typeScheme: prettify(generalize(type)) }))
+  .map(({ type }) => ({ typeScheme: generalize(type) }))
 
 export const checkMod = (
   mod: ModDes,
@@ -48,10 +48,17 @@ export const checkMod = (
   { isMain = false, compiledMods = {} }: Partial<CheckMod.Options> = {},
 ): CheckMod.Res => {
   const importTypeEnv = TypeEnv.empty()
-  for (const [id, { modId }] of entries(mod.importDict)) {
+  for (const [modId, { idSet }] of entries(mod.importDict)) {
     const { typeEnv } = compiledMods[modId]
-    if (id in typeEnv) importTypeEnv[id] = typeEnv[id]
-    else if (! (id in kindEnv)) return Err({ type: 'UnknownImport', modId, id })
+    if (idSet) {
+      for (const id of idSet) {
+        if (id in typeEnv) importTypeEnv[id] = typeEnv[id]
+        else if (! (id in kindEnv)) return Err({ type: 'UnknownImport', modId, id })
+      }
+    }
+    else {
+      Object.assign(importTypeEnv, typeEnv)
+    }
   }
 
   const bindings = mod.defs.map(def => def.binding)
@@ -90,16 +97,22 @@ export namespace CheckKindMod {
 }
 
 export const checkKindMod = (
-  mod: Mod,
-  importDict: Dict<Import>,
+  mod: ModRes,
   { compiledMods = {} }: CheckKindMod.Options
 ): CheckKindMod.Res => {
   const importKindEnv = KindEnv.empty()
-  for (const [id, { modId }] of entries(importDict)) {
-    if (! isUpper(id[0])) continue
+  for (const [modId, { idSet }] of entries(mod.importDict)) {
     const { kindEnv, typeEnv } = compiledMods[modId]
-    if (id in kindEnv) importKindEnv[id] = kindEnv[id]
-    else if (! (id in typeEnv)) return Err({ type: 'UnknownImport', modId, id })
+    if (idSet) {
+      for (const id of idSet) {
+        if (! isUpper(id[0])) continue
+        if (id in kindEnv) importKindEnv[id] = kindEnv[id]
+        else if (! (id in typeEnv)) return Err({ type: 'UnknownImport', modId, id })
+      }
+    }
+    else {
+      Object.assign(importKindEnv, kindEnv)
+    }
   }
 
   const baseKindEnv = { ...builtinKindEnv, ...importKindEnv }

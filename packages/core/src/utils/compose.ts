@@ -1,5 +1,6 @@
 import { entries, filter, fromEntries, pipe } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
+import { Comp, Ord } from './types'
 
 export const unsnoc = <A>(as: A[]): [A[], A] => [
   as.slice(0, -1),
@@ -49,3 +50,5 @@ export const fromEntriesStrict = <K extends keyof any, V>(entries: Iterable<read
 
 export const memberOf = <K extends keyof any>(record: Record<K, any>) =>
   (key: keyof any): key is K => key in record
+
+export const equalBy = <T, K extends keyof T>(key: K): Comp<T> => (x, y) => x[key] === y[key]

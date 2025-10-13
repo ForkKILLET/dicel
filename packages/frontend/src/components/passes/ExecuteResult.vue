@@ -27,7 +27,7 @@ const sortDir = ref(1)
 
 const buildValueCmp = (type: Type): Cmp<Value> => {
   if (type.sub !== 'con' && type.sub !== 'apply') return () => 0
-  
+
   const [con, ...args] = uncurryApplyType(type)
   Type.assert(con, ['con'])
 
@@ -47,7 +47,7 @@ const buildValueCmp = (type: Type): Cmp<Value> => {
 
     const deltaIndex = aIndex - bIndex
     if (deltaIndex !== 0) return deltaIndex
-    
+
     const con = data.cons[aIndex]
     const conSubst: TypeSubst = Object.fromEntries(zip(data.typeParams, args))
 
@@ -79,6 +79,7 @@ type DisBar = {
   width: number
   height: number
 
+  value: Value
   label: string
   ratio: number
   prob: string
@@ -99,7 +100,7 @@ const disBars = computed<DisBar[]>(() => {
 
   const cases: DisBar[] = []
   let x = 0.5 * disChWidth.value
-  for (const [label, { count }] of entries) {
+  for (const [label, { value, count }] of entries) {
     const ratio = count / cache.maxCount
     const width = Math.max(5, label.length) * disChWidth.value
     cases.push({
@@ -107,6 +108,7 @@ const disBars = computed<DisBar[]>(() => {
       y: 100 * (1 - ratio),
       width,
       height: 100 * ratio,
+      value,
       label,
       ratio,
       prob: `${(count / cache.totalRuns * 100).toFixed(1)}%`,
@@ -168,6 +170,7 @@ const disLabelWidth = computed(() => Math.max(...disBars.value.map(bar => bar.wi
         </div>
         <svg
           v-if="disGraphDir === 'horizontal'"
+          xmlns:xhtml="http://www.w3.org/1999/xhtml"
           class="dis-graph horizontal"
           :width="disTotalWidth + 10"
           :height="140"
@@ -228,9 +231,9 @@ const disLabelWidth = computed(() => Math.max(...disBars.value.map(bar => bar.wi
             <rect
               class="dis-bar-bar"
               :x="disCountWidth + disProbWidth + 10"
-              :y="15 * i + 10 - 15 / 2"
+              :y="15 * i + 10 - 10 / 2"
               :width="ratio * 200"
-              :height="15"
+              :height="10"
             />
             <text
               class="dis-bar-val"

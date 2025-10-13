@@ -162,9 +162,8 @@ export const pSymbolVar: P<VarExpr<DRange>> = pRanged(p.map(
 ))
 
 export const pTupleExprInner: P<TupleExpr<DRange>> = p.lazy(() => pRanged(p.bind(
-  p.sep(pExpr, pSpacedAround(p.char(','))),
+  p.sep2(pExpr, pSpacedAround(p.char(','))),
   (elems) => p.result(
-    elems.length < 2 ? Err(null) :
     elems.length > 4 ? Err(ParseErr('TooLargeTuple', { size: elems.length })) :
     Ok({ type: 'tuple', elems })
   )
@@ -191,10 +190,9 @@ export const pParenExpr: P<ExprRaw<DRange>> = p.lazy(() => pRanged(p.parens(
 )))
 
 export const pListExpr: P<ListExpr<DRange>> = p.lazy(() => pRanged(p.map(
-  p.brackets(pSpacedAround(p.alt([
-    p.sep(pExpr, pSpacedAround(p.char(','))),
-    p.pure<ExprRaw<DRange>[]>([]),
-  ]))),
+  p.brackets(pSpacedAround(
+    p.sep0(pExpr, pSpacedAround(p.char(','))),
+  )),
   (elems) => ({
     type: 'list',
     elems,
@@ -394,10 +392,9 @@ export const pConPattern: P<ConPattern<DRange>> = p.lazy(() => p.map(
 ))
 
 export const pListPattern: P<ListPattern<DRange>> = p.lazy(() => pRanged(p.map(
-  p.brackets(p.alt([
-    p.sep(pPattern, pSpacedAround(p.char(','))),
-    p.pure<Pattern<DRange>[]>([]),
-  ])),
+  p.brackets(
+    p.sep0(pPattern, pSpacedAround(p.char(','))),
+  ),
   (elems) => ({
     type: 'pattern',
     sub: 'list',
@@ -406,9 +403,8 @@ export const pListPattern: P<ListPattern<DRange>> = p.lazy(() => pRanged(p.map(
 )))
 
 export const pTuplePatternInner: P<TuplePattern<DRange>> = p.lazy(() => pRanged(p.bind(
-  p.sep(pPattern, pSpacedAround(p.char(','))),
+  p.sep2(pPattern, pSpacedAround(p.char(','))),
   (elems) => p.result(
-    elems.length < 2 ? Err(null) :
     elems.length > 4 ? Err(ParseErr('TooLargeTuple', { size: elems.length })) :
     Ok({ type: 'pattern', sub: 'tuple', elems })
   )
@@ -536,7 +532,7 @@ export const pListType: P<ApplyType> = p.lazy(() => p.map(
 ))
 
 export const pTupleTypeInner: P<Type> = p.lazy(() => p.map(
-  p.sep1(pType, pSpacedAround(p.char(','))),
+  p.sep2(pType, pSpacedAround(p.char(','))),
   elems => ApplyTypeCurried(ConType(`${','.repeat(elems.length - 1)}`), ...elems)
 ))
 
@@ -613,7 +609,7 @@ export const pDef: P<Def<DRange>> = pRanged(p.map(
 
 export const pDecl: P<Decl<DRange>> = pRanged(p.map(
   p.seq([
-    p.sep(p.alt([pVar, p.parens(pSymbolVarExprInner)]), pSpacedAround(p.char(','))),
+    p.sep1(p.alt([pVar, p.parens(pSymbolVarExprInner)]), pSpacedAround(p.char(','))),
     pSpacedAround(p.str('::')),
     pTypeNode(pType),
   ]),
@@ -629,7 +625,7 @@ export const pFixityDecl: P<FixityDecl<DRange>> = pRanged(p.map(
     p.str('infix'),
     p.opt(p.oneOf('lr')),
     pSpaced(p.posint),
-    pSpaced(p.sep(pSymbolVar, pSpacedAround(p.char(',')))),
+    pSpaced(p.sep1(pSymbolVar, pSpacedAround(p.char(',')))),
   ]),
   ([, assocChar, prec, vars]) => ({
     type: 'fixityDecl',
@@ -645,7 +641,7 @@ export const pDataDecl: P<DataDecl<DRange>> = pRanged(p.lazy(() => p.bind(
     pSpaced(pCon),
     p.many(pSpaced(pVarType)),
     pSpacedAround(p.char('=')),
-    p.sep(
+    p.sep1(
       p.alt([pApplyType, pConType]),
       pSpacedAround(p.char('|'))
     ),
@@ -668,7 +664,7 @@ export const pDataDecl: P<DataDecl<DRange>> = pRanged(p.lazy(() => p.bind(
       id,
       data: {
         id,
-        typeParams: typeParams.map(({ id }) => id),
+        typeParams,
         cons,
       }
     }))
@@ -679,18 +675,18 @@ export const pImport: P<ImportDecl<DRange>> = pRanged(p.map(
   p.seq([
     p.str('import'),
     pSpaced(pIdentBig),
-    p.opt(pSpaced(p.parens(pSpacedAround(p.alt([
-      p.sep(
+    p.opt(pSpaced(p.parens(pSpacedAround(p.map(
+      p.sep0(
         p.alt([pVar, pCon, p.parens(pSymbolVarExprInner)]),
         pSpacedAround(p.char(',')),
       ),
-      p.pure([]),
-    ]))))),
+      ids => ids.map(({ id }) => id),
+    ))))),
   ]),
-  ([, modId, vars]) => ({
+  ([, modId, ids]) => ({
     type: 'import',
     modId,
-    ids: vars?.map(({ id }) => id) ?? [],
+    ids,
   })
 ))
 
