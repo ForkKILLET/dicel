@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { type DId, type DRange, isSymbol, isUpper, Node, Type } from '@dicel/core'
+import { type DId, type DRange, isSymbol, isUpper, Node } from '@dicel/core'
 
 import { computed, useTemplateRef } from 'vue'
 import { Selection, useSelectable } from '../utils/selectable'
@@ -176,10 +176,12 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
     <span v-else-if="node.type === 'import'">
       <span class="node-kw">import</span>
       <span class="node-var">{{ node.modId }}</span>
-      (<template v-for="id, i of node.ids" :key="i">
-        <NodeV :node="{ type: 'var', id }" :parent="node" />
-        <span v-if="i < node.ids.length - 1" class="node-spaced-right">,</span>
-      </template>)
+      <template v-if="node.ids">
+        (<template v-for="id, i of node.ids" :key="i">
+          <NodeV :node="{ type: 'var', id }" :parent="node" />
+          <span v-if="i < node.ids.length - 1" class="node-spaced-right">,</span>
+        </template>)
+      </template>
     </span>
     <span v-else-if="node.type === 'mod' || node.type === 'modRes'">
       <div v-for="import_ of node.imports">
