@@ -24,7 +24,7 @@ export const zip3 = <A, B, C>(as: A[], bs: B[], cs: C[]): [A, B, C][] => {
   return result
 }
 
-export const id = <A>(a: A): A => a
+export const id = <const A>(a: A): A => a
 export const the = <A>(a: NoInfer<A>): A => a
 
 export const describeToShow = <T, D>(

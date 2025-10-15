@@ -1,9 +1,9 @@
 import { match } from 'ts-pattern'
-import { fromEntries, keys, map, mapValues, mergeAll, omit, pick, pipe, prop, reduce, tap, unique, values } from 'remeda'
+import { fromEntries, keys, map, mapValues, mergeAll, omit, pick, pipe, reduce, unique, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
 import { Type, ConType, VarType, FuncType, TypeScheme, ApplyType, FuncTypeCurried, RigidVarType, Kind, KindEnv, TypeEnv, TypeSubst, VarKind, FuncKind, KindSubst, TypeKind, FuncKindCurried, VarTypeSet } from './types'
-import { BindingRes, DataDecl, Decl, ExprDes, Node, PatternDes } from './nodes'
-import { Map, the, Set, Graph, Dict, memberOf, equalBy, EqSet, Iter } from './utils'
+import { BindingRes, DataDecl, Decl, ExprDes, LetResExpr, ModDes, Node, PatternDes } from './nodes'
+import { Map, the, Set, Graph, Dict, memberOf, Iter } from './utils'
 import { SubbedPair } from './utils/match'
 
 export type TypedBinding = {
@@ -349,6 +349,41 @@ export namespace BindingGroup {
   }
 }
 
+export const resolveBindingGroups = (
+  typedBindings: TypedBinding[],
+  envH: TypeEnv,
+): BindingGroup.Group[] => {
+  const varIds = Set.of(keys(envH))
+  const bindingMap = Map.empty<string, TypedBinding>()
+  const depGraph: Graph<string> = Map.empty()
+
+  for (const typedBinding of typedBindings) {
+    const { binding, env } = typedBinding
+    for (const varId of keys(env)) {
+      bindingMap.set(varId, typedBinding)
+      depGraph.set(varId, collectExprVars(binding.rhs).intersection(varIds))
+    }
+  }
+
+  const { comps } = Graph.solveSCCs(depGraph)
+
+  return comps
+    .reverse()
+    .map(({ color, nodes }): BindingGroup.Group => {
+      const varIds = [...nodes]
+      const typedBindings = pipe(
+        varIds,
+        map(varId => bindingMap.get(varId)!),
+        unique(),
+      )
+      return {
+        id: color,
+        typedBindings,
+        varIds,
+      }
+    })
+}
+
 export class TypeInferer {
   tvs = new TypeVarState('t')
 
@@ -411,49 +446,12 @@ export class TypeInferer {
       }))
   }
 
-  resolveBindingGroups(
-    typedBindings: TypedBinding[],
-    envH: TypeEnv,
-  ) {
-    const varIds = Set.of(keys(envH))
-    const bindingMap = Map.empty<string, TypedBinding>()
-    const depGraph: Graph<string> = Map.empty()
-
-    for (const typedBinding of typedBindings) {
-      const { binding, env } = typedBinding
-      for (const varId of keys(env)) {
-        bindingMap.set(varId, typedBinding)
-        depGraph.set(varId, collectExprVars(binding.rhs).intersection(varIds))
-      }
-    }
-
-    const { comps } = Graph.solveSCCs(depGraph)
-
-    return comps
-      .reverse()
-      .map(({ color, nodes }): BindingGroup.Group => {
-        const varIds = [...nodes]
-        const typedBindings = pipe(
-          varIds,
-          map(varId => bindingMap.get(varId)!),
-          unique(),
-        )
-        return {
-          id: color,
-          typedBindings,
-          varIds,
-        }
-      })
-  }
-
   inferBindings(
     bindings: BindingRes<{}, 'des'>[],
     declMap: Dict<Decl>,
     env: TypeEnv,
-    node: Node,
+    node: ModDes | LetResExpr<{}, 'des'>,
   ): InferBinding.Res {
-    void node
-
     return Result
       .fold(
         bindings,
@@ -471,7 +469,7 @@ export class TypeInferer {
           }))
       )
       .bind(({ envH, typedBindings }) => {
-        const groups = this.resolveBindingGroups(typedBindings, envH)
+        const groups = node.bindingGroups = resolveBindingGroups(typedBindings, envH) // TODO: => Checked AST
         return Result
           .fold(
             groups,
@@ -598,8 +596,8 @@ export class TypeInferer {
           })
         )
       )
-      .with({ type: 'letRes' }, ({ bindings, body }) => this
-        .inferBindings(bindings, {}, env, expr)
+      .with({ type: 'letRes' }, ({ bindings, body }, letExpr) => this
+        .inferBindings(bindings, {}, env, letExpr)
         .bind(({ env: envI, subst: bindingSubst }) => this
           .infer(body, { ...env, ...envI })
           .map(({ type: bodyType, subst: bodySubst }) => ({

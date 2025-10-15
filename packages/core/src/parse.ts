@@ -5,9 +5,9 @@ import { ApplyType, ApplyTypeCurried, ConType, FuncType, Type, uncurryApplyType,
 import { unsnoc } from './utils'
 import {
   DRange, DId,
-  NumExpr, TupleExpr, UnitExpr, VarExpr, ListExpr, ApplyExpr, InfixExpr,
+  NumExpr, TupleExprAuto, UnitExpr, VarExpr, ListExpr, ApplyExpr, InfixExpr,
   CondExpr, Binding, LetExpr, WildcardPattern, NumPattern, UnitPattern, ConPattern, VarPattern,
-  CaseBranch, CaseExpr, LambdaResExpr, LambdaCaseExpr, AnnExpr, Def, Mod, DataDecl, Pattern,
+  CaseBranch, CaseExpr, LambdaResExpr, LambdaCaseExpr, AnnExpr, BindingDef, Mod, DataDecl, Pattern,
   ApplyMultiExpr, RollExpr,
   withId,
   TuplePattern,
@@ -23,7 +23,9 @@ import {
   ExprDes,
   NodeRaw,
   ExprRaw,
-  ExprRawType
+  ExprRawType,
+  Equation,
+  EquationDef
 } from './nodes'
 import { isLower, isUpper, RESERVED_SYMBOLS, RESERVED_WORDS, SYMBOL_CHARS } from './lex'
 
@@ -161,7 +163,12 @@ export const pSymbolVar: P<VarExpr<DRange>> = pRanged(p.map(
   id => ({ type: 'var', id })
 ))
 
-export const pTupleExprInner: P<TupleExpr<DRange>> = p.lazy(() => pRanged(p.bind(
+export const pSymbolOrCommaVar: P<VarExpr<DRange>> = pRanged(p.map(
+  pSymbolOrComma,
+  id => ({ type: 'var', id }))
+)
+
+export const pTupleExprInner: P<TupleExprAuto<DRange>> = p.lazy(() => pRanged(p.bind(
   p.sep2(pExpr, pSpacedAround(p.char(','))),
   (elems) => p.result(
     elems.length > 4 ? Err(ParseErr('TooLargeTuple', { size: elems.length })) :
@@ -171,7 +178,6 @@ export const pTupleExprInner: P<TupleExpr<DRange>> = p.lazy(() => pRanged(p.bind
 
 export const pUnitExprInner: P<UnitExpr<DRange>> = pRanged(p.pure({ type: 'unit' }))
 
-export const pSymbolVarExprInner: P<VarExpr<DRange>> = pRanged(p.map(pSymbolOrComma, (id): VarExpr => ({ type: 'var', id })))
 
 export const pParenExprInner: P<ParenExpr<DRange>> = p.lazy(() => pRanged(p.map(
   pExpr,
@@ -183,7 +189,7 @@ export const pParenExpr: P<ExprRaw<DRange>> = p.lazy(() => pRanged(p.parens(
     pTupleExprInner,
     pSectionLExprInner,
     pSectionRExprInner,
-    pSymbolVarExprInner,
+    pSymbolOrCommaVar,
     pParenExprInner,
     pUnitExprInner,
   ]))
@@ -216,6 +222,10 @@ export const pCon: P<VarExpr<DRange>> = pRanged(p.map(
   id => ({ type: 'var', id })
 ))
 
+export const pVarOrSymbolVar: P<VarExpr<DRange>> = p.alt([pVar, pSymbolVar])
+
+export const pVarDelimited = p.alt([pVar, p.parens(p.alt([pVar, pSymbolVar]))])
+
 export const pRollExpr: P<RollExpr<DRange>> = p.map(
   p.ranged(p.seq([
     p.opt(pPrimaryExpr),
@@ -231,18 +241,6 @@ export const pRollExpr: P<RollExpr<DRange>> = p.map(
 )
 
 export const pRollExprL = p.alt([pRollExpr, pPrimaryExpr])
-
-export const ApplyExprCurried = (func: ExprDes, args: ExprDes[]): ApplyExpr<{}, 'des'> => (args.length
-  ? pipe(
-    unsnoc(args),
-    ([args, arg]) => ({
-      type: 'apply',
-      func: ApplyExprCurried(func, args),
-      arg,
-    })
-  )
-  : func
-) as ApplyExpr<{}, 'des'>
 
 export const uncurryApplyExpr = (expr: ApplyExpr<DRange, 'des'>): ExprDes<DRange>[] => expr.func.type === 'apply'
   ? [...uncurryApplyExpr(expr.func), expr.arg]
@@ -293,7 +291,7 @@ export const pInfixExpr: P<InfixExpr<DRange>> = pRanged(p.map(
 export const pInfixExprL = p.lazy(() => p.alt([pInfixExpr, pApplyExprL]))
 
 export const pSectionLExprInner: P<SectionLExpr<DRange>> = pRanged(p.map(
-  p.seq([pInfixExprL, pSpaced(pSymbolVarExprInner)]),
+  p.seq([pInfixExprL, pSpaced(pSymbolOrCommaVar)]),
   ([arg, op]) => ({
     type: 'sectionL',
     op,
@@ -302,7 +300,7 @@ export const pSectionLExprInner: P<SectionLExpr<DRange>> = pRanged(p.map(
 ))
 
 export const pSectionRExprInner: P<SectionRExpr<DRange>> = pRanged(p.map(
-  p.seq([pSymbolVarExprInner, pSpaced(pInfixExprL)]),
+  p.seq([pSymbolOrCommaVar, pSpaced(pInfixExprL)]),
   ([op, arg]) => ({
     type: 'sectionR',
     op,
@@ -347,6 +345,21 @@ export const pBinding: P<Binding<DRange>> = p.lazy(() => p.map(
   })
 ))
 
+export const pEquation: P<Equation<DRange>> = pRanged(p.lazy(() => p.map(
+  p.seq([
+    pVarDelimited,
+    p.some(pSpaced(pPattern)),
+    pSpacedAround(p.char('=')),
+    pExpr,
+  ]),
+  ([var_, params, , rhs]) => ({
+    type: 'equation',
+    var: var_,
+    params,
+    rhs,
+  })
+)))
+
 export const pLetExpr: P<LetExpr<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([
     p.str('let'),
@@ -377,19 +390,27 @@ export const pUnitPattern: P<UnitPattern<DRange>> = pRanged(
   p.parens(pSpaced(p.pure({ type: 'pattern', sub: 'unit' })))
 )
 
-export const pConPattern: P<ConPattern<DRange>> = p.lazy(() => p.map(
-  p.ranged(p.seq([
-    pCon,
-    p.many(pSpaced(pPattern)),
-  ])),
-  ({ val: [con, args], range }): ConPattern<DRange> => ({
+export const pConPattern: P<Pattern<DRange>> = p.lazy(() => pRanged(p.map(
+  pCon,
+  con => ({
+    type: 'pattern',
+    sub: 'con',
+    con,
+    args: [],
+  })
+)))
+
+export const pApplyPatternInner: P<ConPattern<DRange>> = p.lazy(() => pRanged(p.map(
+  p.seq([pCon, p.some(pSpaced(pPattern))]),
+  ([con, args]) => ({
     type: 'pattern',
     sub: 'con',
     con,
     args,
-    range,
-  })
+  }))
 ))
+
+export const pApplyPattern: P<ConPattern<DRange>> = p.parens(pSpacedAround(pApplyPatternInner))
 
 export const pListPattern: P<ListPattern<DRange>> = p.lazy(() => pRanged(p.map(
   p.brackets(
@@ -403,7 +424,7 @@ export const pListPattern: P<ListPattern<DRange>> = p.lazy(() => pRanged(p.map(
 )))
 
 export const pTuplePatternInner: P<TuplePattern<DRange>> = p.lazy(() => pRanged(p.bind(
-  p.sep2(pPattern, pSpacedAround(p.char(','))),
+  p.sep2(p.alt([pConsPatternInner, pPrimaryPattern]), pSpacedAround(p.char(','))),
   (elems) => p.result(
     elems.length > 4 ? Err(ParseErr('TooLargeTuple', { size: elems.length })) :
     Ok({ type: 'pattern', sub: 'tuple', elems })
@@ -435,12 +456,24 @@ export const pPrimaryPattern: P<Pattern<DRange>> = p.alt([
   pListPattern,
   pVarPattern,
   pWildcardPattern,
+  pApplyPattern,
   pConPattern,
   pNumPattern,
   pUnitPattern,
 ])
 
-export const pConsPattern: P<Pattern<DRange>> = p.lazy(() => p.map(
+export const pPrimaryPatternInner: P<Pattern<DRange>> = p.alt([
+  pParenPattern,
+  pListPattern,
+  pVarPattern,
+  pWildcardPattern,
+  pApplyPatternInner,
+  pConPattern,
+  pNumPattern,
+  pUnitPattern,
+])
+
+export const pConsPatternInner: P<Pattern<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([pPrimaryPattern, p.ranged(pSpacedAround(p.char('#'))), pPattern])),
   ({ val: [head, sharp, tail], range }): ConPattern<DRange> => ({
     type: 'pattern',
@@ -451,7 +484,17 @@ export const pConsPattern: P<Pattern<DRange>> = p.lazy(() => p.map(
   })
 ))
 
-export const pPattern: P<Pattern<DRange>> = p.alt([pConsPattern, pPrimaryPattern])
+export const pConsPattern: P<Pattern<DRange>> = p.parens(pSpacedAround(pConsPatternInner))
+
+export const pPatternInner: P<Pattern<DRange>> = p.alt([
+  pConsPatternInner,
+  pPrimaryPattern
+])
+
+export const pPattern: P<Pattern<DRange>> = p.alt([
+  pConsPattern,
+  pPrimaryPattern
+])
 
 export const pCaseBranch: P<CaseBranch<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([
@@ -481,19 +524,6 @@ export const pCaseExpr: P<CaseExpr<DRange>> = p.lazy(() => p.map(
     range,
   }))
 )
-
-export const LambdaExprCurried = (
-  [param, ...params]: PatternS<{}, 'des'>[],
-  [idSet, ...idSets]: Set<string>[],
-  body: ExprDes,
-): LambdaResExpr<{}, 'des'> => ({
-  type: 'lambdaRes',
-  param,
-  body: ! params.length
-    ? body
-    : LambdaExprCurried(params, idSets, body),
-  idSet,
-})
 
 export const pLambdaMultiExpr: P<LambdaMultiExpr<DRange>> = p.lazy(() => pRanged(p.map(
   p.seq([
@@ -602,14 +632,19 @@ export const pExpr: P<ExprRaw<DRange>> = p.alt([
   pTermExpr,
 ])
 
-export const pDef: P<Def<DRange>> = pRanged(p.map(
+export const pBindingDef: P<BindingDef<DRange>> = pRanged(p.map(
   pBinding,
-  binding => ({ type: 'def', binding })
+  binding => ({ type: 'bindingDef', binding })
+))
+
+export const pEquationDef: P<EquationDef<DRange>> = pRanged(p.map(
+  pEquation,
+  equation => ({ type: 'equationDef', equation })
 ))
 
 export const pDecl: P<Decl<DRange>> = pRanged(p.map(
   p.seq([
-    p.sep1(p.alt([pVar, p.parens(pSymbolVarExprInner)]), pSpacedAround(p.char(','))),
+    p.sep1(pVarDelimited, pSpacedAround(p.char(','))),
     pSpacedAround(p.str('::')),
     pTypeNode(pType),
   ]),
@@ -677,7 +712,7 @@ export const pImport: P<ImportDecl<DRange>> = pRanged(p.map(
     pSpaced(pIdentBig),
     p.opt(pSpaced(p.parens(pSpacedAround(p.map(
       p.sep0(
-        p.alt([pVar, pCon, p.parens(pSymbolVarExprInner)]),
+        p.alt([pVar, pCon, p.parens(pSymbolOrCommaVar)]),
         pSpacedAround(p.char(',')),
       ),
       ids => ids.map(({ id }) => id),
@@ -691,20 +726,22 @@ export const pImport: P<ImportDecl<DRange>> = pRanged(p.map(
 ))
 
 export const pMod: P<Mod<DRange>> = p.map(
-  p.ranged(pBlock(p.alt([pImport, pFixityDecl, pDecl, pDef, pDataDecl]))),
+  p.ranged(pBlock(p.alt([pImport, pFixityDecl, pDecl, pBindingDef, pEquationDef, pDataDecl]))),
   ({ val: defs, range }) => pipe(
     defs,
     groupByProp('type'),
     ({
       import: imports = [],
-      def: defs = [],
+      bindingDef: bindingDefs = [],
+      equationDef: equationDefs = [],
       dataDecl: dataDecls = [],
       fixityDecl: fixityDecls = [],
       decl: decls = [],
     }): Mod<DRange> => ({
       type: 'mod',
       imports,
-      defs,
+      bindingDefs,
+      equationDefs,
       decls,
       fixityDecls,
       dataDecls,

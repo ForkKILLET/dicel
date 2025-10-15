@@ -38,7 +38,7 @@ const withParen = computed(() => Value.needsParen(props.value, props.parent))
         <span v-if="i + 1 < value.vals.length">,&nbsp;</span>
       </template>)
     </span>
-    <span v-else-if="value.tag === 'unit'"></span>
+    <span v-else-if="value.tag === 'unit'">()</span>
     <template v-if="withParen">)</template>
   </div>
 </template>

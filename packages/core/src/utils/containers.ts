@@ -198,6 +198,8 @@ export namespace Iter {
 export type Dict<T> = Record<string, T>
 
 export namespace Dict {
+  export const empty = <T>(): Dict<T> => ({})
+
   export const fromEntries = <T>(entries: Iterable<readonly [string, T]>): Dict<T> =>
     Object.fromEntries(entries)
 }

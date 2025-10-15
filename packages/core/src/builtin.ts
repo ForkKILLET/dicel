@@ -91,11 +91,11 @@ export const builtinData: KindedDataEnv = {
     cons: [],
     kind: FuncNKind(1),
   },
-  '': {
-    id: '',
+  '()': {
+    id: '()',
     typeParams: VarTypes(),
     cons: [
-      { id: '', params: [] }
+      { id: '()', params: [] }
     ],
     kind: FuncNKind(1),
   },

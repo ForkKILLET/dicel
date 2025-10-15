@@ -2,18 +2,20 @@ import { Ok, Result } from 'fk-result'
 import {
   AnnExpr, ApplyMultiExpr, CondExpr, InfixExpr, ListExpr, ModRes, Mod, NodeRaw,
   NodeRawType, NumExpr, ParenExpr, PatternRaw, PatternRes, RollExpr, SectionLExpr,
-  TupleExpr, TypeNode, UnitExpr, VarExpr, LetResExpr, BindingRes, CaseBranchRes,
-  CaseResExpr, LambdaMultiResExpr, LambdaCaseResExpr, DefRes,
+  TupleExprAuto, TypeNode, UnitExpr, VarExpr, LetResExpr, BindingRes, CaseBranchRes,
+  CaseResExpr, LambdaMultiResExpr, LambdaCaseResExpr, BindingDefRes,
   SectionRExpr,
+  EquationRes,
+  EquationDefRes,
+  EquationDefGroupRes,
 } from './nodes'
 import { Dict, fromEntriesStrict, Set } from './utils'
-import { flatMap, groupBy, groupByProp, map, mapValues, pick, pipe, prop, unique, values } from 'remeda'
+import { flatMap, groupByProp, keys, map, mapValues, pick, pipe, prop, unique } from 'remeda'
 import { match } from 'ts-pattern'
 import { InferKind } from './infer'
 import { checkKindMod } from './check'
 import { CompiledMod } from './mods'
 import { KindEnv } from './types'
-import { group } from 'console'
 
 export type ResolveMap = {
   unit: UnitExpr
@@ -31,8 +33,10 @@ export type ResolveMap = {
   cond: CondExpr<{}, 'res'>
   let: LetResExpr
   binding: BindingRes
+  equation: EquationRes
   caseBranch: CaseBranchRes
-  def: DefRes
+  bindingDef: BindingDefRes
+  equationDef: EquationDefRes
   roll: RollExpr<{}, 'res'>
   infix: InfixExpr<{}, 'res'>
   sectionL: SectionLExpr<{}, 'res'>
@@ -41,7 +45,7 @@ export type ResolveMap = {
   lambdaMulti: LambdaMultiResExpr
   lambdaCase: LambdaCaseResExpr
   list: ListExpr<{}, 'res'>
-  tuple: TupleExpr<{}, 'res'>
+  tuple: TupleExprAuto<{}, 'res'>
   paren: ParenExpr<{}, 'res'>
 }
 export const assertResolveMapCorrect: [NodeRawType, keyof ResolveMap] =
@@ -99,6 +103,7 @@ export const resolveImpls: ResolveImpls = {
         type: 'letRes',
         bindings,
         idSet,
+        bindingGroups: [],
         body: env.resolve(expr.body),
       })
     )
@@ -109,15 +114,30 @@ export const resolveImpls: ResolveImpls = {
     rhs: env.resolve(binding.rhs),
     idSet: pipe(binding.lhs, collectPatternVarsStrict, env.unwrapConflictDef)
   }),
+  equation: (env, equation) => ({
+    type: 'equationRes',
+    var: equation.var,
+    params: equation.params,
+    rhs: env.resolve(equation.rhs),
+    idSet: pipe(
+      equation.params,
+      collectPatternListVarsStrict,
+      env.unwrapConflictDef,
+    ),
+  }),
   caseBranch: (env, branch) => ({
     type: 'caseBranchRes',
     pattern: branch.pattern,
     body: env.resolve(branch.body),
     idSet: pipe(branch.pattern, collectPatternVarsStrict, env.unwrapConflictDef)
   }),
-  def: (env, def) => ({
-    type: 'defRes',
+  bindingDef: (env, def) => ({
+    type: 'bindingDefRes',
     binding: env.resolve(def.binding),
+  }),
+  equationDef: (env, def) => ({
+    type: 'equationDefRes',
+    equation: env.resolve(def.equation),
   }),
   roll: (env, expr) => ({
     ...expr,
@@ -230,29 +250,58 @@ export const resolveImpls: ResolveImpls = {
       env.unwrapDuplicate('dataDecl'),
     )
 
-    const defs = mod.defs.map(env.resolve)
-    const defIdSet = pipe(
-      mod.defs,
+    const bindingDefs = mod.bindingDefs.map(env.resolve)
+    const bindingDefIdSet = pipe(
+      mod.bindingDefs,
       map(def => def.binding.lhs),
       collectPatternListVarsStrict,
       env.unwrapConflictDef,
     )
 
+    const equationDefGroupDict = Dict.empty<EquationDefGroupRes>()
+    for (const def of mod.equationDefs) {
+      const { var: { id }, params: { length: arity } } = def.equation
+
+      if (bindingDefIdSet.has(id)) env.panic({ type: 'ConflictDef', id })
+
+      const group = equationDefGroupDict[id]
+      const getResolved = () => env.resolve(def)
+      if (group) {
+        if (group.arity !== arity) env.panic({ type: 'DiffEquationArity', id })
+        group.equationDefs.push(getResolved())
+      }
+      else {
+        equationDefGroupDict[id] = {
+          type: 'equationDefGroupRes',
+          id,
+          arity,
+          equationDefs: [getResolved()],
+        }
+      }
+    }
+
+    const equationDefIdSet = Set.of(keys(equationDefGroupDict))
+    const idSet = Set.union([bindingDefIdSet, equationDefIdSet, dataConIdSet])
+
     for (const id in declDict) {
-      if (! defIdSet.has(id)) env.panic({ type: 'MissingDef', id })
+      if (! idSet.has(id)) env.panic({ type: 'MissingDef', id })
     }
 
     const modRes: ModRes = {
       ...mod,
       type: 'modRes',
-      defs,
-      defIdSet,
+      bindingDefs,
+      bindingDefIdSet,
+      equationDefIdSet,
+      equationDefGroupDict,
       dataConIdSet,
+      idSet,
       importDict,
       importModIdSet,
       declDict,
       fixityDict,
       dataDict,
+      bindingGroups: [],
     }
 
     return modRes
@@ -277,6 +326,7 @@ export namespace Resolve {
   export type Err =
     | { type: 'Duplicate', sub: 'decl' | 'fixityDecl' | 'dataDecl' | 'import', id: string }
     | { type: 'ConflictDef', id: string }
+    | { type: 'DiffEquationArity', id: string }
     | { type: 'MissingDef', id: string }
     | { type: 'UnknownMod', modId: string }
     | { type: 'UnknownImport', modId: string, id: string }

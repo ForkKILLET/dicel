@@ -66,6 +66,14 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <span class="node-sym node-spaced">=</span>
       <NodeV :node="node.rhs" :selection="selection" :parent="node" />
     </span>
+    <span v-else-if="node.type === 'equation' || node.type === 'equationRes'">
+      <NodeV :node="node.var" :selection="selection" :parent="node" />
+      <template v-for="param of node.params">
+        <NodeV :node="param" :selection="selection" :parent="node" class="node-spaced-left" />
+      </template>
+      <span class="node-sym node-spaced">=</span>
+      <NodeV :node="node.rhs" :selection="selection" :parent="node" />
+    </span>
     <span v-else-if="node.type === 'case' || node.type === 'caseRes'">
       <span class="node-kw">case</span>
       <NodeV :node="node.subject" :selection="selection" :parent="node" />
@@ -143,8 +151,11 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
     <span v-else-if="node.type === 'typeNode'">
       <TypeV :type="node.val" />
     </span>
-    <span v-else-if="node.type === 'def' || node.type === 'defRes'">
+    <span v-else-if="node.type === 'bindingDef' || node.type === 'bindingDefRes'">
       <NodeV :node="node.binding" :selection="selection" :parent="node" />
+    </span>
+    <span v-else-if="node.type === 'equationDef' || node.type === 'equationDefRes'">
+      <NodeV :node="node.equation" :selection="selection" :parent="node" />
     </span>
     <span v-else-if="node.type === 'decl'">
       <template v-for="var_, i of node.vars">
@@ -183,7 +194,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         </template>)
       </template>
     </span>
-    <span v-else-if="node.type === 'mod' || node.type === 'modRes'">
+    <span v-else-if="node.type === 'mod' || node.type === 'modRes' || node.type === 'modDes'">
       <div v-for="import_ of node.imports">
         <NodeV :node="import_" :selection="selection" :parent="node" />
       </div>
@@ -196,7 +207,18 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV :node="decl" :selection="selection" :parent="node" />
       </div>
 
-      <div v-for="def of node.defs">
+      <template v-if="node.type === 'mod'">
+        <div v-for="def of node.equationDefs">
+          <NodeV :node="def" :selection="selection" :parent="node" />
+        </div>
+      </template>
+      <template v-else-if="node.type === 'modRes'">
+        <div v-for="defGroup of node.equationDefGroupDict">
+          <NodeV :node="defGroup" :selection="selection" :parent="node" />
+        </div>
+      </template>
+
+      <div v-for="def of node.bindingDefs">
         <NodeV :node="def" :selection="selection" :parent="node" />
       </div>
 

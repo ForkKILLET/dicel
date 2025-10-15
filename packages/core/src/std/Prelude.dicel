@@ -2,20 +2,17 @@
 
 data Bool = True | False
 
-(||) :: Bool -> Bool -> Bool
-(||) = \x y -> case x of
-  True -> True
-  False -> y
+-- (||) :: Bool -> Bool -> Bool
+-- (||) True _ = True
+-- (||) False y = y
 
-(&&) :: Bool -> Bool -> Bool
-(&&) = \x y -> case x of
-  True -> y
-  False -> False
+-- (&&) :: Bool -> Bool -> Bool
+-- (&&) False _ = False
+-- (&&) True y = y
 
 not :: Bool -> Bool
-not = \x -> case x of
-  True -> False
-  False -> True
+not True = False
+not False = True
 
 -- Number
 
@@ -25,81 +22,80 @@ inf = 1 / 0
 -- Function
 
 id :: a -> a
-id = \x -> x
+id x = x
 
 const :: a -> b -> a
-const = \x y -> x
+const x _ = x
 
 flip :: (a -> b -> c) -> b -> a -> c
-flip = \f x y -> f y x
+flip f x y = f y x
 
 (|>) :: a -> (a -> b) -> b
-(|>) = \x f -> f x
+(|>) x f = f x
 
 ($) :: (a -> b) -> a -> b
-($) = \f x -> f x
+($) f x = f x
 
 (.) :: (b -> c) -> (a -> b) -> a -> c
-(.) = \f g x -> f (g x)
+(.) f g x = f (g x)
 
 -- List
 
 map :: (a -> b) -> [a] -> [b]
-map = \f xs -> case xs of
-  [] -> []
-  x#xs -> f x # map f xs
+map _ [] = []
+map f (x#xs) = f x # map f xs
 
 filter :: (a -> Bool) -> [a] -> [a]
-filter = \p xs -> case xs of
-  [] -> []
-  x#xs ->
-    let xs' = filter p xs
-    in p x ? x#xs' : xs'
+filter _ [] = []
+filter p (x#xs) =
+  let xs' = filter p xs
+  in p x ? x#xs' : xs'
 
 (<$>) = map
 infixl 4 <$>
 
+sort :: [Num] -> [Num]
+sort [] = []
+sort (p#xs) =
+  let smallers = filter (< p) xs
+      biggers = filter (>= p) xs
+  in sort smallers ++ (p # sort biggers)
+
 (++) :: [a] -> [a] -> [a]
-(++) = \xs ys ->
-  case xs of
-    [] -> ys
-    x#xs -> x # (xs ++ ys)
+(++) [] ys = ys
+(++) (x#xs) ys = x # (xs ++ ys)
 
 take :: Num -> [a] -> [a]
-take = \n xs -> case (n, xs) of
-  (0, _) -> []
-  (_, []) -> []
-  (n, x#xs) -> x # take (n - 1) xs
+take 0 _ = []
+take _ [] = []
+take n (x#xs) = x # take (n - 1) xs
 
 drop :: Num -> [a] -> [a]
-drop = \n xs -> case (n, xs) of
-  (0, _) -> xs
-  (_, []) -> []
-  (n, x#xs) -> drop (n - 1) xs
+drop 0 xs = xs
+drop _ [] = []
+drop n (x#xs) = drop (n - 1) xs
 
 -- Maybe
 
 data Maybe a = Just a | Nothing
 
 listToMaybe :: [a] -> Maybe a
-listToMaybe = \case
-  [] -> Nothing
-  x#_ -> Just x
+listToMaybe [] = Nothing
+listToMaybe (x#_) = Just x
 
 maybeToList :: Maybe a -> [a]
-maybeToList = \case
-  Nothing -> []
-  Just x -> [x]
+maybeToList Nothing = []
+maybeToList (Just x) = [x]
 
 -- Tuple
 
 data Solo a = MkSolo a
 
 fst :: (a, b) -> a
-fst = \(x, _) -> x
+fst (x, _) = x
 
 snd :: (a, b) -> b
-snd = \(_, y) -> y
+snd (_, y) = y
 
 -- Either
 
@@ -108,3 +104,9 @@ data Either a b = Left a | Right b
 -- Ordering
 
 data Ordering = LT | EQ | GT
+
+compare :: Num -> Num -> Ordering
+compare x y =
+  x < y ? LT :
+  x > y ? GT :
+  EQ

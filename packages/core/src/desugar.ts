@@ -3,14 +3,16 @@ import { match } from 'ts-pattern'
 import {
   NumExpr, UnitExpr, VarExpr, CondExpr, ApplyExpr, ExprDes, LambdaResExpr, TypeNode,
   AnnExpr, PatternDes, Node, SectionLExpr, SectionRExpr, NodeResType, ModRes,
-  NodeRes, LetResExpr, BindingRes, DefRes, CaseBranchRes, CaseResExpr, PatternRes,
-  ModDes,
+  NodeRes, LetResExpr, BindingRes, BindingDefRes, CaseBranchRes, CaseResExpr, PatternRes,
+  ModDes, EquationRes, EquationDefRes,
+  ApplyExprCurried, TupleExprAuto,
+  TuplePatternAuto, LambdaExprCurried,
 } from './nodes'
-import { ApplyExprCurried, extractMaybeInfixOp, LambdaExprCurried } from './parse'
+import { extractMaybeInfixOp } from './parse'
 import { Dict, Set, id } from './utils'
 import { Fixity, builtinFixityDict } from './lex'
 import { CompiledMod } from './mods'
-import { map, mergeAll, pipe, values } from 'remeda'
+import { map, mergeAll, pipe, range, values } from 'remeda'
 
 export type DesugarMap = {
   unit: UnitExpr
@@ -22,6 +24,7 @@ export type DesugarMap = {
   roll: ApplyExpr<{}, 'des'>
   applyMulti: ExprDes
   bindingRes: BindingRes<{}, 'des'>
+  equationRes: EquationRes<{}, 'des'>
   caseBranchRes: CaseBranchRes<{}, 'des'>
   lambdaMultiRes: LambdaResExpr<{}, 'des'>
   typeNode: TypeNode
@@ -34,7 +37,9 @@ export type DesugarMap = {
   list: ExprDes
   paren: ExprDes
   pattern: PatternDes
-  defRes: DefRes<{}, 'des'>
+  bindingDefRes: BindingDefRes<{}, 'des'>
+  equationDefRes: EquationDefRes<{}, 'des'>
+  equationDefGroupRes: BindingDefRes<{}, 'des'>
   modRes: ModDes
 }
 export const assertDesugarMapCorrect: [NodeResType, keyof DesugarMap] =
@@ -85,6 +90,12 @@ export const desugarImpls: DesugarImpls = {
   bindingRes: (env, expr) => ({
     ...expr,
     lhs: env.desugar(expr.lhs),
+    rhs: env.desugar(expr.rhs),
+  }),
+  equationRes: (env, expr) => ({
+    ...expr,
+    var: expr.var,
+    params: expr.params.map(env.desugar),
     rhs: env.desugar(expr.rhs),
   }),
   caseBranchRes: (env, expr) => ({
@@ -254,13 +265,56 @@ export const desugarImpls: DesugarImpls = {
       })
     )))
     .otherwise(id),
-  defRes: (env, def) => ({
+  bindingDefRes: (env, def) => ({
     ...def,
     binding: env.desugar(def.binding)
   }),
+  equationDefRes: (env, def) => ({
+    ...def,
+    equation: env.desugar(def.equation)
+  }),
+  equationDefGroupRes: (env, group) => {
+    const defs = group.equationDefs.map(env.desugar)
+    const argIds = range(0, group.arity).map(i => `!arg${i}`)
+    const argVars: VarExpr[] = argIds.map(id => ({ type: 'var', id }))
+    const case_: CaseResExpr<{}, 'des'> = {
+      type: 'caseRes',
+      subject: TupleExprAuto(argVars),
+      branches: defs.map(({ equation }): CaseBranchRes<{}, 'des'> => ({
+        type: 'caseBranchRes',
+        idSet: equation.idSet,
+        pattern: TuplePatternAuto(equation.params),
+        body: equation.rhs,
+      })),
+    }
+    const lambda = LambdaExprCurried(
+      argVars.map(var_ => ({ type: 'pattern', sub: 'var', var: var_ })),
+      argIds.map(Set.solo),
+      case_,
+    )
+    const binding: BindingRes<{}, 'des'> = {
+      type: 'bindingRes',
+      idSet: Set.solo(group.id),
+      lhs: { type: 'pattern', sub: 'var', var: { type: 'var', id: group.id } },
+      rhs: lambda,
+    }
+    return {
+      type: 'bindingDefRes',
+      id: group.id,
+      binding,
+    }
+  },
   modRes: (env, mod) => ({
     ...mod,
-    defs: mod.defs.map(env.desugar),
+    type: 'modDes',
+    bindingDefs: [
+      ...mod.bindingDefs.map(env.desugar),
+      ...values(mod.equationDefGroupDict).map(env.desugar),
+    ],
+    bindingDefIdSet: Set.union([
+      mod.bindingDefIdSet,
+      mod.equationDefIdSet,
+    ]),
   })
 }
 

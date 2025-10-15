@@ -122,7 +122,7 @@ export namespace Value {
     )
     .exhaustive()
 
-  export const needsParen = (self: ValueDesc, parent: ValueDesc | null): boolean => parent !== null && (
+  export const needsParen = (self: ValueDesc, parent: ValueDesc | null): boolean => parent !== null && self.tag !== 'unit' && (
     parent.tag === 'con' && self.tag === 'con' && self.args.length > 0
   )
 

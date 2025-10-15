@@ -61,7 +61,7 @@ export const checkMod = (
     }
   }
 
-  const bindings = mod.defs.map(def => def.binding)
+  const bindings = mod.bindingDefs.map(def => def.binding)
 
   const dataTypeEnv = pipe(
     entries(mod.dataDict),

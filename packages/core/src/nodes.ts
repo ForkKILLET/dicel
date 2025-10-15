@@ -1,10 +1,12 @@
 import { Range } from 'parsecond'
 import { match } from 'ts-pattern'
-import { describeToShow, Dict } from './utils'
-import { KindEnv, Type } from './types'
+import { describeToShow, Dict, unsnoc } from './utils'
+import { Type } from './types'
 import { Data } from './data'
 import { isSymbolOrComma } from './lex'
 import { Fixity } from './lex'
+import { mapValues, pipe } from 'remeda'
+import { BindingGroup } from './infer'
 
 export type DRange = { range: Range }
 export type DId = { astId: number }
@@ -17,7 +19,7 @@ export type UnitExpr<D = {}> = D & {
   type: 'unit'
 }
 
-export type TupleExpr<D = {}, S extends NodeStage = 'raw'> = D & {
+export type TupleExprAuto<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'tuple'
   elems: ExprS<D, S>[]
 }
@@ -37,6 +39,28 @@ export type ApplyExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'apply'
   func: ExprS<D, S>
   arg: ExprS<D, S>
+}
+
+export const ApplyExprCurried = (func: ExprDes, args: ExprDes[]): ApplyExpr<{}, 'des'> => (args.length
+  ? pipe(
+    unsnoc(args),
+    ([args, arg]) => ({
+      type: 'apply',
+      func: ApplyExprCurried(func, args),
+      arg,
+    })
+  )
+  : func
+) as ApplyExpr<{}, 'des'>
+
+export const TupleExprAuto = (args: ExprDes[]): ExprDes => {
+  const { length } = args
+  if (length === 0) return { type: 'unit' }
+  if (length === 1) return args[0]
+  return ApplyExprCurried(
+    { type: 'var', id: ','.repeat(length - 1) },
+    args,
+  )
 }
 
 export type ApplyMultiExpr<D = {}, S extends NodeStage = 'raw'> = D & {
@@ -89,6 +113,21 @@ export type BindingRes<D = {}, S extends NodeStage = 'res'> = D & {
   idSet: Set<string>
 }
 
+export type Equation<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'equation'
+  var: VarExpr<D>
+  params: PatternS<D, S>[]
+  rhs: ExprS<D, S>
+}
+
+export type EquationRes<D = {}, S extends NodeStage = 'res'> = D & {
+  type: 'equationRes'
+  var: VarExpr<D>
+  params: PatternS<D, S>[]
+  rhs: ExprS<D, S>
+  idSet: Set<string>
+}
+
 export type LetExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'let'
   bindings: Binding<D, S>[]
@@ -98,8 +137,9 @@ export type LetExpr<D = {}, S extends NodeStage = 'raw'> = D & {
 export type LetResExpr<D = {}, S extends NodeStage = 'res'> = D & {
   type: 'letRes'
   bindings: BindingRes<D, S>[]
-  idSet: Set<string>
   body: ExprS<D, S>
+  idSet: Set<string>
+  bindingGroups: BindingGroup.Group[]
 }
 
 export type ParenExpr<D = {}, S extends NodeStage = 'raw'> = D & {
@@ -140,6 +180,18 @@ export type TuplePattern<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'pattern'
   sub: 'tuple'
   elems: PatternS<D, S>[]
+}
+
+export const TuplePatternAuto = (args: PatternDes[]): PatternDes => {
+  const { length } = args
+  if (length === 0) return { type: 'pattern', sub: 'unit' }
+  if (length === 1) return args[0]
+  return {
+    type: 'pattern',
+    sub: 'con',
+    con: { type: 'var', id: ','.repeat(length - 1) },
+    args,
+  }
 }
 
 export type VarPattern<D = {}> = D & {
@@ -193,6 +245,19 @@ export type LambdaResExpr<D = {}, S extends NodeStage = 'des'> = D & {
   idSet: Set<string>
 }
 
+export const LambdaExprCurried = (
+  [param, ...params]: PatternS<{}, 'des'>[],
+  [idSet, ...idSets]: Set<string>[],
+  body: ExprDes,
+): LambdaResExpr<{}, 'des'> => ({
+  type: 'lambdaRes',
+  param,
+  body: ! params.length
+    ? body
+    : LambdaExprCurried(params, idSets, body),
+  idSet,
+})
+
 export type LambdaCaseExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'lambdaCase'
   branches: CaseBranch<D, S>[]
@@ -214,14 +279,31 @@ export type AnnExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   ann: TypeNode<D>
 }
 
-export type Def<D = {}, S extends NodeStage = 'raw'> = D & {
-  type: 'def'
+export type BindingDef<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'bindingDef'
   binding: Binding<D, S>
 }
 
-export type DefRes<D = {}, S extends NodeStage = 'res'> = D & {
-  type: 'defRes'
+export type BindingDefRes<D = {}, S extends NodeStage = 'res'> = D & {
+  type: 'bindingDefRes'
   binding: BindingRes<D, S>
+}
+
+export type EquationDef<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'equationDef'
+  equation: Equation<D, S>
+}
+
+export type EquationDefRes<D = {}, S extends NodeStage = 'res'> = D & {
+  type: 'equationDefRes'
+  equation: EquationRes<D, S>
+}
+
+export type EquationDefGroupRes<D = {}, S extends NodeStage = 'res'> = D & {
+  type: 'equationDefGroupRes'
+  id: string
+  arity: number
+  equationDefs: EquationDefRes<D, S>[]
 }
 
 export type Decl<D = {}> = D & {
@@ -255,7 +337,8 @@ export type Import = {
 
 export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'mod'
-  defs: Def<D, S>[]
+  bindingDefs: BindingDef<D, S>[]
+  equationDefs: EquationDef<D, S>[]
   imports: ImportDecl<D>[]
   decls: Decl<D>[]
   fixityDecls: FixityDecl<D>[]
@@ -264,26 +347,52 @@ export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {
 
 export type ModRes<D = {}, S extends NodeStage = 'res'> = D & {
   type: 'modRes'
-  defs: DefRes<D, S>[]
+  bindingDefs: BindingDefRes<D, S>[]
   imports: ImportDecl<D>[]
   decls: Decl<D>[]
   fixityDecls: FixityDecl<D>[]
   dataDecls: DataDecl<D>[]
 
-  defIdSet: Set<string>
+  equationDefIdSet: Set<string>
+  equationDefGroupDict: Dict<EquationDefGroupRes<D, S>>
+
+  bindingDefIdSet: Set<string>
   dataConIdSet: Set<string>
+  idSet: Set<string>
+
   importDict: Dict<Import>
   importModIdSet: Set<string>
   declDict: Dict<Decl>
   fixityDict: Dict<Fixity>
   dataDict: Dict<Data>
+
+  bindingGroups: BindingGroup.Group[]
 }
 
-export type ModDes = ModRes<{}, 'des'>
+export type ModDes<D = {}, S extends NodeStage = 'des'> = D & {
+  type: 'modDes'
+  bindingDefs: BindingDefRes<D, S>[]
+  imports: ImportDecl<D>[]
+  decls: Decl<D>[]
+  fixityDecls: FixityDecl<D>[]
+  dataDecls: DataDecl<D>[]
+
+  bindingDefIdSet: Set<string>
+  dataConIdSet: Set<string>
+  idSet: Set<string>
+
+  importDict: Dict<Import>
+  importModIdSet: Set<string>
+  declDict: Dict<Decl>
+  fixityDict: Dict<Fixity>
+  dataDict: Dict<Data>
+
+  bindingGroups: BindingGroup.Group[]
+}
 
 export type Class = {
   typeParams: string[]
-  defs: Def[]
+  defs: BindingDef[]
 }
 export type ClassDef = {
   type: 'classDef'
@@ -304,7 +413,7 @@ export type ExprRawToRes<D = {}, S extends NodeStage = 'raw'> =
   | SectionLExpr<D, S>
   | SectionRExpr<D, S>
   | ListExpr<D, S>
-  | TupleExpr<D, S>
+  | TupleExprAuto<D, S>
   | ParenExpr<D, S>
 
 export type ExprRawToDes<D = {}, S extends NodeStage = 'raw'> =
@@ -407,13 +516,15 @@ export type NodeRawToRaw<D = {}, S extends NodeStage = 'raw'> =
   | ExprRawToRaw<D, S>
   | PatternRawToRaw<D, S>
   | Mod<D, S>
-  | Def<D, S>
+  | BindingDef<D, S>
+  | EquationDef<D, S>
   | Decl<D>
   | DataDecl<D>
   | ImportDecl<D>
   | FixityDecl<D>
   | CaseBranch<D, S>
   | Binding<D, S>
+  | Equation<D, S>
 
 export type NodeRawToRes<D = {}, S extends NodeStage = 'raw'> =
   | ExprRawToRes<D, S>
@@ -432,13 +543,16 @@ export type NodeRaw<D = {}> =
 export type NodeResToRes<D = {}, S extends NodeStage = 'res'> =
   | ExprResToRes<D, S>
   | PatternResToRes<D, S>
+  | ModRes<D, S>
+  | EquationRes<D, S>
+  | EquationDefRes<D, S>
+  | EquationDefGroupRes<D, S>
 
 export type NodeResToDes<D = {}, S extends NodeStage = 'res'> =
   | ExprResToDes<D, S>
   | PatternResToDes<D, S>
-  | ModRes<D, S>
-  | DefRes<D, S>
   | CaseBranchRes<D, S>
+  | BindingDefRes<D, S>
   | BindingRes<D, S>
 
 export type NodeRes<D = {}> =
@@ -450,6 +564,7 @@ export type NodeRes<D = {}> =
 export type NodeDesToDes<D = {}, S extends NodeStage = 'des'> =
   | ExprDesToDes<D, S>
   | PatternDesToDes<D, S>
+  | ModDes<D, S>
 
 export type NodeDes<D = {}> =
   | NodeRawToDes<D, 'des'>
@@ -536,6 +651,9 @@ export namespace Node {
       .with({ type: 'binding' }, { type: 'bindingRes' },
         binding => `${show(binding.lhs)} = ${show(binding.rhs)}`
       )
+      .with({ type: 'equation' }, { type: 'equationRes' }, expr =>
+        `${show(expr.var)} ${expr.params.map(show).join(' ')} = ${show(expr.rhs)}`
+      )
       .with({ type: 'lambdaMulti' }, { type: 'lambdaMultiRes' }, expr =>
         `(\\${expr.params.map(show).join(' ')} -> ${show(expr.body)})`
       )
@@ -565,7 +683,11 @@ export namespace Node {
         `(${show(expr.expr)} :: ${show(expr.ann)})`
       )
       .with({ type: 'typeNode' }, type => Type.show(type.val))
-      .with({ type: 'def' }, { type: 'defRes' }, def => show(def.binding))
+      .with({ type: 'bindingDef' }, { type: 'bindingDefRes' }, def => show(def.binding))
+      .with({ type: 'equationDef' }, { type: 'equationDefRes' }, def => show(def.equation))
+      .with({ type: 'equationDefGroupRes' }, def =>
+        def.equationDefs.map(show).join('\n')
+      )
       .with({ type: 'decl' }, decl =>
         `${decl.vars.map(show).join(',')} :: ${show(decl.ann)}`
       )
@@ -582,13 +704,12 @@ export namespace Node {
       .with({ type: 'import' }, ({ modId: mod }) =>
         `import ${mod}`
       )
-      .with({ type: 'mod' }, mod => [
+      .with({ type: 'mod' }, { type: 'modRes' }, { type: 'modDes' }, mod => [
         ...mod.dataDecls,
         ...mod.decls,
-        ...mod.defs,
+        ...mod.bindingDefs,
         ...mod.fixityDecls,
       ].map(show).join('\n\n'))
-      .with({ type: 'modRes' }, _mod => '<mod>') // TODO
       .with({ type: 'lambdaCase' }, { type: 'lambdaCaseRes' }, expr =>
         `\case ${expr.branches.map(show).join('; ')}`
       )
@@ -625,22 +746,28 @@ export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> = {
   ann: AnnExpr<D, S>
   binding: Binding<D, S>
   bindingRes: BindingRes<D, S>
+  equation: Equation<D, S>
+  equationRes: Equation<D, S>
   caseBranch: CaseBranch<D, S>
   caseBranchRes: CaseBranchRes<D, S>
-  def: Def<D, S>
-  defRes: DefRes<D, S>
+  bindingDef: BindingDef<D, S>
+  bindingDefRes: BindingDefRes<D, S>
+  equationDef: EquationDef<D, S>
+  equationDefRes: EquationDefRes<D, S>
+  equationDefGroupRes: EquationDefGroupRes<D, S>
   decl: Decl<D>
   fixityDecl: FixityDecl<D>
   dataDecl: DataDecl<D>
   import: ImportDecl<D>
   mod: Mod<D, S>
   modRes: ModRes<D, S>
+  modDes: ModDes<D, S>
   roll: RollExpr<D, S>
   infix: InfixExpr<D, S>
   sectionL: SectionLExpr<D, S>
   sectionR: SectionRExpr<D, S>
   list: ListExpr<D, S>
-  tuple: TupleExpr<D, S>
+  tuple: TupleExprAuto<D, S>
   paren: ParenExpr<D, S>
 }[K]
 
@@ -652,9 +779,10 @@ export const withId = <K extends NodeRawType, D>(node: NodeH<K, D>): NodeH<K, D 
 
     switch (newNode.type) {
       case 'num':
+      case 'unit':
       case 'var':
       case 'typeNode':
-      case 'unit':
+      case 'import':
         break
       case 'applyMulti':
         newNode.func = traverse<ExprRawType>(newNode.func)
@@ -730,12 +858,20 @@ export const withId = <K extends NodeRawType, D>(node: NodeH<K, D>): NodeH<K, D 
         newNode.lhs = traverse<'pattern'>(newNode.lhs)
         newNode.rhs = traverse<ExprRawType>(newNode.rhs)
         break
+      case 'equation':
+        newNode.var = traverse<'var'>(newNode.var)
+        newNode.params = newNode.params.map(traverse<'pattern'>)
+        newNode.rhs = traverse<ExprRawType>(newNode.rhs)
+        break
       case 'ann':
         newNode.expr = traverse<ExprRawType>(newNode.expr)
         newNode.ann = traverse<'typeNode'>(newNode.ann)
         break
-      case 'def':
+      case 'bindingDef':
         newNode.binding = traverse<'binding'>(newNode.binding)
+        break
+      case 'equationDef':
+        newNode.equation = traverse<'equation'>(newNode.equation)
         break
       case 'decl':
         newNode.vars = newNode.vars.map(traverse<'var'>)
@@ -748,7 +884,8 @@ export const withId = <K extends NodeRawType, D>(node: NodeH<K, D>): NodeH<K, D 
         break
       case 'mod':
         newNode.imports = newNode.imports.map(traverse<'import'>)
-        newNode.defs = newNode.defs.map(traverse<'def'>)
+        newNode.bindingDefs = newNode.bindingDefs.map(traverse<'bindingDef'>)
+        newNode.equationDefs = newNode.equationDefs.map(traverse<'equationDef'>)
         newNode.decls = newNode.decls.map(traverse<'decl'>)
         newNode.fixityDecls = newNode.fixityDecls.map(traverse<'fixityDecl'>)
         newNode.dataDecls = newNode.dataDecls.map(traverse<'dataDecl'>)

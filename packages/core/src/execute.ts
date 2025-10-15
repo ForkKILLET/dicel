@@ -5,6 +5,7 @@ import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
 import { Data } from './data'
 import { Binding, BindingRes, ExprDes, Mod, ModDes, ModRes, PatternDes } from './nodes'
 import { CompiledMod } from './mods'
+import { BindingGroup, resolveBindingGroups } from './infer'
 
 export type Ref = { value: Value }
 export type ValueEnv = Record<string, Ref>
@@ -71,7 +72,12 @@ export const evaluatePattern = (pattern: PatternDes, subject: Value): ValueEnv |
   }
 }
 
-export const evaluateBindings = (bindings: BindingRes<{}, 'des'>[], idSet: Set<string>, env: ValueEnv) => {
+export const evaluateBindings = (
+  bindings: BindingRes<{}, 'des'>[],
+  idSet: Set<string>,
+  bindingGroups: BindingGroup.Group[],
+  env: ValueEnv
+) => {
   const envI = {
     ...env,
     ...pipe(
@@ -82,9 +88,11 @@ export const evaluateBindings = (bindings: BindingRes<{}, 'des'>[], idSet: Set<s
       fromEntries(),
     )
   }
-  bindings.forEach(({ lhs, rhs }) => {
-    const envP = evaluatePattern(lhs, evaluate(rhs, envI))
-    Object.assign(envI, envP)
+  bindingGroups.forEach(group => {
+    group.typedBindings.forEach(({ binding: { lhs, rhs } }) => {
+      const envP = evaluatePattern(lhs, evaluate(rhs, envI))
+      Object.assign(envI, envP)
+    })
   })
   return envI
 }
@@ -112,7 +120,7 @@ export const evaluate = (expr: ExprDes, env: ValueEnv): Value => {
       case 'var':
         return ValueEnv.resolve(expr.id, env, expr)
       case 'letRes': {
-        const envP = evaluateBindings(expr.bindings, expr.idSet, env)
+        const envP = evaluateBindings(expr.bindings, expr.idSet, expr.bindingGroups, env)
         if (envP === null) throw new EvaluateError('Non-exhaustive patterns in let binding.', expr)
         return evaluate(expr.body, envP)
       }
@@ -173,13 +181,13 @@ export const executeMod = (
   )
   const dataValueEnv: ValueEnv = pipe(
     values(mod.dataDict),
-    map((data) => Data.getValueEnv(data)),
+    map(Data.getValueEnv),
     mergeAll,
   )
   const env = { ...ValueEnv.global(), ...importEnv, ...dataValueEnv }
   return Result
     .wrap<ValueEnv, EvaluateError | Error>(() =>
-      evaluateBindings(mod.defs.map(def => def.binding), mod.defIdSet, env)
+      evaluateBindings(mod.bindingDefs.map(def => def.binding), mod.bindingDefIdSet, mod.bindingGroups, env)
     )
     .tapErr(err => {
       if (! (err instanceof EvaluateError)) console.error(err)

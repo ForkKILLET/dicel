@@ -17,7 +17,7 @@ const showAll = ref(false)
     <div class="badge">check</div>
     Types: <button @click="showAll = ! showAll">{{ showAll ? 'all' : 'user' }}</button>
     <template v-for="typeScheme, id in result.typeEnv" :key="id">
-      <div v-if="showAll || result.modRes.defIdSet.has(id) || result.modRes.dataConIdSet.has(id)">
+      <div v-if="showAll || result.modRes.idSet.has(id)">
         <NodeV :node="{ type: 'var', id }" />
         <span class="node-sym node-spaced">::</span>
         <TypeSchemeV :type-scheme="TypeScheme.prettify(typeScheme)" />
