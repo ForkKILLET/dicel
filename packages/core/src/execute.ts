@@ -3,9 +3,8 @@ import { Result } from 'fk-result'
 import { builtinVals } from './builtin'
 import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
 import { Data } from './data'
-import { Binding, BindingRes, ExprDes, Mod, ModDes, ModRes, PatternDes } from './nodes'
+import { BindingHostDes, ExprDes, ModDes, Node, NodeDes, PatternDes } from './nodes'
 import { CompiledMod } from './mods'
-import { BindingGroup, resolveBindingGroups } from './infer'
 
 export type Ref = { value: Value }
 export type ValueEnv = Record<string, Ref>
@@ -72,35 +71,37 @@ export const evaluatePattern = (pattern: PatternDes, subject: Value): ValueEnv |
   }
 }
 
-export const evaluateBindings = (
-  bindings: BindingRes<{}, 'des'>[],
-  idSet: Set<string>,
-  bindingGroups: BindingGroup.Group[],
+export const evaluateBindingHost = (
+  bindingHost: BindingHostDes,
   env: ValueEnv
 ) => {
   const envI = {
     ...env,
     ...pipe(
-      [...idSet],
+      [...bindingHost.idSet],
       map((id): [string, Ref] => [
         id, { value: ErrValue(`Uninitialized variable '${id}'`) }
       ]),
       fromEntries(),
     )
   }
-  bindingGroups.forEach(group => {
-    group.typedBindings.forEach(({ binding: { lhs, rhs } }) => {
+
+  for (const group of bindingHost.bindingGroups) {
+    for (const { binding } of group.typedBindings) {
+      const { lhs, rhs } = binding
       const envP = evaluatePattern(lhs, evaluate(rhs, envI))
-      Object.assign(envI, envP)
-    })
-  })
+      if (! envP) throw new EvaluateError('Non-exhaustive patterns in binding.', binding)
+      Object.assign(envI, envP) // keep `envI` references held by mutually dependent bindings valid
+    }
+  }
+
   return envI
 }
 
 export class EvaluateError extends Error {
   name = 'EvaluateError'
 
-  constructor(msg: string, public expr: ExprDes) {
+  constructor(msg: string, public node: NodeDes) {
     super(msg)
   }
 }
@@ -119,9 +120,8 @@ export const evaluate = (expr: ExprDes, env: ValueEnv): Value => {
       }
       case 'var':
         return ValueEnv.resolve(expr.id, env, expr)
-      case 'letRes': {
-        const envP = evaluateBindings(expr.bindings, expr.idSet, expr.bindingGroups, env)
-        if (envP === null) throw new EvaluateError('Non-exhaustive patterns in let binding.', expr)
+      case 'letDes': {
+        const envP = evaluateBindingHost(expr.bindingHost, env)
         return evaluate(expr.body, envP)
       }
       case 'caseRes': {
@@ -136,12 +136,15 @@ export const evaluate = (expr: ExprDes, env: ValueEnv): Value => {
       case 'apply': {
         const func = evaluate(expr.func, env)
         Value.assert(func, 'func')
-        return func.val(evaluate(expr.arg, env))
+        const arg = evaluate(expr.arg, env)
+        const ret = func.val(arg)
+        return ret
       }
       case 'lambdaRes':
         return FuncValue((arg: Value) => {
           const envP = evaluatePattern(expr.param, arg)
-          if (envP === null) throw new EvaluateError('Non-exhaustive patterns in param.', expr)
+          if (! envP) throw new EvaluateError('Non-exhaustive patterns in param.', expr)
+          console.log(mapValues(envP, ref => Value.show(ref.value)))
           return evaluate(expr.body, {
             ...env,
             ...envP,
@@ -171,7 +174,7 @@ export const executeMod = (
   mod: ModDes,
   { compiledMods = {} }: Partial<ExecuteMod.Options> = {}
 ): Result<ValueEnv, EvaluateError | Error> => {
-  const importEnv: ValueEnv = pipe(
+  const importValueEnv: ValueEnv = pipe(
     entries(mod.importDict),
     map(([modId, { idSet }]) => {
       const { valueEnv } = compiledMods[modId]
@@ -184,10 +187,10 @@ export const executeMod = (
     map(Data.getValueEnv),
     mergeAll,
   )
-  const env = { ...ValueEnv.global(), ...importEnv, ...dataValueEnv }
+  const baseValueEnv = { ...ValueEnv.global(), ...importValueEnv, ...dataValueEnv }
   return Result
     .wrap<ValueEnv, EvaluateError | Error>(() =>
-      evaluateBindings(mod.bindingDefs.map(def => def.binding), mod.bindingDefIdSet, mod.bindingGroups, env)
+      evaluateBindingHost(mod.bindingHost, baseValueEnv)
     )
     .tapErr(err => {
       if (! (err instanceof EvaluateError)) console.error(err)

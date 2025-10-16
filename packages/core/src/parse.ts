@@ -2,30 +2,14 @@ import { Err, Ok, Result } from 'fk-result'
 import { p, ParseErr, Parser, ParserState, Range } from 'parsecond'
 import { groupByProp, pipe } from 'remeda'
 import { ApplyType, ApplyTypeCurried, ConType, FuncType, Type, uncurryApplyType, VarType } from './types'
-import { unsnoc } from './utils'
 import {
   DRange, DId,
-  NumExpr, TupleExprAuto, UnitExpr, VarExpr, ListExpr, ApplyExpr, InfixExpr,
-  CondExpr, Binding, LetExpr, WildcardPattern, NumPattern, UnitPattern, ConPattern, VarPattern,
-  CaseBranch, CaseExpr, LambdaResExpr, LambdaCaseExpr, AnnExpr, BindingDef, Mod, DataDecl, Pattern,
-  ApplyMultiExpr, RollExpr,
-  withId,
-  TuplePattern,
-  ListPattern,
-  LambdaMultiExpr,
-  Decl,
-  FixityDecl,
-  SectionLExpr,
-  SectionRExpr,
-  ParenExpr,
-  ImportDecl,
-  PatternS,
-  ExprDes,
-  NodeRaw,
-  ExprRaw,
-  ExprRawType,
-  Equation,
-  EquationDef
+  NumExpr, TupleExprAuto, UnitExpr, VarExpr, ListExpr, ApplyExpr, InfixExpr, CondExpr, Binding, LetExpr,
+  WildcardPattern, NumPattern, UnitPattern, ConPattern, VarPattern, CaseBranch, CaseExpr, LambdaCaseExpr,
+  AnnExpr, BindingDef, Mod, DataDecl, Pattern, ApplyMultiExpr, RollExpr, TuplePattern, ListPattern,
+  LambdaMultiExpr, Decl, FixityDecl, SectionLExpr, SectionRExpr, ParenExpr, ImportDecl, ExprDes, NodeRaw,
+  ExprRaw, ExprRawType, Equation, EquationDef, withId,
+  BindingHost,
 } from './nodes'
 import { isLower, isUpper, RESERVED_SYMBOLS, RESERVED_WORDS, SYMBOL_CHARS } from './lex'
 
@@ -119,7 +103,6 @@ const pRanged = <T extends NodeRaw, E>(parser: Parser<T, E>): Parser<T & DRange,
     val: {
       ...val,
       range: {
-        input: state.input,
         start: oldState.index,
         end: state.index,
       }
@@ -360,16 +343,37 @@ export const pEquation: P<Equation<DRange>> = pRanged(p.lazy(() => p.map(
   })
 )))
 
+export const pBindingHost: P<BindingHost<DRange>> = p.lazy(() => p.map(
+  p.ranged(pBlock(p.alt([pDecl, pFixityDecl, pBindingDef, pEquationDef]))),
+  ({ val: defs, range }): BindingHost<DRange> => pipe(
+    defs,
+    groupByProp('type'),
+    ({
+      decl: decls = [],
+      fixityDecl: fixityDecls = [],
+      equationDef: equationDefs = [],
+      bindingDef: bindingDefs = [],
+    }): BindingHost<DRange> => ({
+      type: 'bindingHost',
+      decls,
+      fixityDecls,
+      equationDefs,
+      bindingDefs,
+      range,
+    })
+  )
+))
+
 export const pLetExpr: P<LetExpr<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([
     p.str('let'),
-    pBlock(pBinding),
+    pBindingHost,
     pSpacedAround(p.str('in')),
     pExpr,
   ])),
-  ({ val: [, bindings, , body], range }): LetExpr<DRange> => ({
+  ({ val: [, bindingHost, , body], range }): LetExpr<DRange> => ({
     type: 'let',
-    bindings,
+    bindingHost,
     body,
     range,
   })
@@ -619,7 +623,7 @@ export const pTermExpr: P<ExprRaw<DRange>> = pRanged(p.alt([
 ]))
 
 export const pAnnExpr: P<AnnExpr<DRange>> = pRanged(p.map(
-  p.seq([pTermExpr, pSpaced(p.str('::')), pTypeNode(pType)]),
+  p.seq([pTermExpr, pSpacedAround(p.str('::')), pTypeNode(pType)]),
   ([expr, , ann]) => ({
     type: 'ann',
     expr,
@@ -732,19 +736,23 @@ export const pMod: P<Mod<DRange>> = p.map(
     groupByProp('type'),
     ({
       import: imports = [],
-      bindingDef: bindingDefs = [],
-      equationDef: equationDefs = [],
       dataDecl: dataDecls = [],
-      fixityDecl: fixityDecls = [],
       decl: decls = [],
+      fixityDecl: fixityDecls = [],
+      equationDef: equationDefs = [],
+      bindingDef: bindingDefs = [],
     }): Mod<DRange> => ({
       type: 'mod',
       imports,
-      bindingDefs,
-      equationDefs,
-      decls,
-      fixityDecls,
       dataDecls,
+      bindingHost: {
+        type: 'bindingHost',
+        decls,
+        fixityDecls,
+        equationDefs,
+        bindingDefs,
+        range,
+      },
       range,
     })
   )

@@ -3,9 +3,10 @@ import { type DId, type DRange, isSymbol, isUpper, Node } from '@dicel/core'
 
 import { computed, useTemplateRef } from 'vue'
 import { Selection, useSelectable } from '../utils/selectable'
-
 import TypeV from './TypeV.vue'
 import PatternV from './PatternV.vue'
+
+import { values } from 'remeda'
 
 const props = withDefaults(defineProps<{
   node: Node<DRange & DId> | Node
@@ -51,11 +52,9 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV :node="node.no" :selection="selection" :parent="node" />
       </div>
     </span>
-    <span v-else-if="node.type === 'let' || node.type === 'letRes'">
+    <span v-else-if="node.type === 'let' || node.type === 'letRes' || node.type === 'letDes'">
       <span class="node-kw">let</span>
-      <div v-for="binding, i of node.bindings" :key="i" class="node-block">
-        <NodeV :node="binding" :selection="selection" :parent="node" />
-      </div>
+      <NodeV :node="node.bindingHost" :selection="selection" :parent="node" />
       <div>
         <span class="node-kw">in</span>
         <NodeV :node="node.body" :selection="selection" :parent="node" />
@@ -194,6 +193,27 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         </template>)
       </template>
     </span>
+    <span v-else-if="node.type === 'bindingHost' || node.type === 'bindingHostRes' || node.type === 'bindingHostDes'">
+      <div v-for="decl of node.type === 'bindingHost' ? node.decls : values(node.declDict)">
+        <NodeV :node="decl" :selection="selection" :parent="node" />
+      </div>
+
+      <div v-for="fixityDecl of node.type === 'bindingHost' ? node.fixityDecls : values(node.fixityDict)">
+        <NodeV :node="fixityDecl" :selection="selection" :parent="node" />
+      </div>
+
+      <div v-for="bindingDef of node.type !== 'bindingHostDes' ? node.bindingDefs : node.bindings">
+        <NodeV :node="bindingDef" :selection="selection" :parent="node" />
+      </div>
+
+      <div v-for="equationDef of
+        node.type === 'bindingHost' ? node.equationDefs :
+        node.type === 'bindingHostRes' ? values(node.equationDefGroupDict).flatMap(group => group.equationDefs) :
+        []"
+      >
+        <NodeV :node="equationDef" :selection="selection" :parent="node" />
+      </div>
+    </span>
     <span v-else-if="node.type === 'mod' || node.type === 'modRes' || node.type === 'modDes'">
       <div v-for="import_ of node.imports">
         <NodeV :node="import_" :selection="selection" :parent="node" />
@@ -203,28 +223,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV :node="dataDecl" :selection="selection" :parent="node" />
       </div>
 
-      <div v-for="decl of node.decls">
-        <NodeV :node="decl" :selection="selection" :parent="node" />
-      </div>
-
-      <template v-if="node.type === 'mod'">
-        <div v-for="def of node.equationDefs">
-          <NodeV :node="def" :selection="selection" :parent="node" />
-        </div>
-      </template>
-      <template v-else-if="node.type === 'modRes'">
-        <div v-for="defGroup of node.equationDefGroupDict">
-          <NodeV :node="defGroup" :selection="selection" :parent="node" />
-        </div>
-      </template>
-
-      <div v-for="def of node.bindingDefs">
-        <NodeV :node="def" :selection="selection" :parent="node" />
-      </div>
-
-      <div v-for="fixityDecl of node.fixityDecls">
-        <NodeV :node="fixityDecl" :selection="selection" :parent="node" />
-      </div>
+      <NodeV :node="node.bindingHost" :selection="selection" :parent="node" />
     </span>
     <span v-if="withParen">)</span>
   </span>

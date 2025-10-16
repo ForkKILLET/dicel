@@ -10,7 +10,6 @@ export const startRepl = () => {
     prompt: 'dicel> ',
   })
 
-
   const processLine = (line: string) => {
     const parseRes = parseExpr(line)
     if (parseRes.isErr) {

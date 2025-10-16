@@ -9,14 +9,17 @@
 - (v) lambda case
 - (v) custom ADT
 - (v) dicel IR => Node Stage
-- (v) binding groups
 - (v) operator enhancements
   - (v) custom operators
   - (v) fixity parsing
   - (v) custom fixity
   - (v) sections
-
 - (v) comment
+
+- (.) binding groups
+  - (v) equations
+  - ( ) func head
+  - (v) binding host
 
 - (.) modules
   - (v) top level definitions
@@ -28,7 +31,10 @@
   - (v) stdlib
   - (v) prelude
 
-- (v) check kind
+- (.) check kind
+  - (v) check data decls
+  - (v) check type decls
+  - ( ) check annotations
 
 ---
 

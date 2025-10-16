@@ -2,7 +2,7 @@ import { Err, Ok, Result } from 'fk-result'
 import { builtinKindEnv, builtinTypeEnv } from './builtin'
 import { generalize, TypeInferer, InferType, InferKind, KindInferer } from './infer'
 import { TypeScheme, TypeEnv, KindEnv, KindSubst } from './types'
-import { entries, map, mergeAll, pipe } from 'remeda'
+import { entries, map, mergeAll, pipe, values } from 'remeda'
 import { Dict } from './utils'
 import { Data } from './data'
 import { ExprDes, Import, Mod, ModDes, ModRes } from './nodes'
@@ -61,8 +61,6 @@ export const checkMod = (
     }
   }
 
-  const bindings = mod.bindingDefs.map(def => def.binding)
-
   const dataTypeEnv = pipe(
     entries(mod.dataDict),
     map(([id, data]) => Data.getEnv(id, data)),
@@ -72,7 +70,7 @@ export const checkMod = (
   const baseTypeEnv = { ...importTypeEnv, ...builtinTypeEnv, ...dataTypeEnv }
 
   return new TypeInferer()
-    .inferBindings(bindings, mod.declDict, baseTypeEnv, mod)
+    .inferBindingHost(mod.bindingHost, baseTypeEnv)
     .bind(({ env, varIds }): CheckMod.Res =>
       ! isMain || varIds.has('main')
         ? Ok({ typeEnv: env })
@@ -121,10 +119,5 @@ export const checkKindMod = (
 
   return kindInferer
     .inferDataDecls(mod.dataDecls, baseKindEnv)
-    .bind(({ env: envData }) => kindInferer
-      .inferDecls(mod.decls, envData)
-      .map(({ subst: substDecl }) => ({
-        kindEnv: KindSubst.applyDict(substDecl)(envData)
-      }))
-    )
+    .map(({ env }) => ({ kindEnv: env }))
 }

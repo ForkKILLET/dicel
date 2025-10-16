@@ -1,16 +1,13 @@
 import { Ok, Result } from 'fk-result'
 import {
-  AnnExpr, ApplyMultiExpr, CondExpr, InfixExpr, ListExpr, ModRes, Mod, NodeRaw,
-  NodeRawType, NumExpr, ParenExpr, PatternRaw, PatternRes, RollExpr, SectionLExpr,
-  TupleExprAuto, TypeNode, UnitExpr, VarExpr, LetResExpr, BindingRes, CaseBranchRes,
-  CaseResExpr, LambdaMultiResExpr, LambdaCaseResExpr, BindingDefRes,
-  SectionRExpr,
-  EquationRes,
-  EquationDefRes,
-  EquationDefGroupRes,
+  AnnExpr, ApplyMultiExpr, CondExpr, InfixExpr, ListExpr, ModRes, Mod, NodeRaw, NodeRawType, NumExpr,
+  ParenExpr, PatternRaw, PatternRes, RollExpr, SectionLExpr, TupleExprAuto, TypeNode, UnitExpr,
+  VarExpr, LetResExpr, BindingRes, CaseBranchRes, CaseResExpr, LambdaMultiResExpr, LambdaCaseResExpr,
+  BindingDefRes, SectionRExpr, EquationRes, EquationDefRes, EquationDefGroupRes, BindingHostRes,
+  FixityDecl, Decl,
 } from './nodes'
 import { Dict, fromEntriesStrict, Set } from './utils'
-import { flatMap, groupByProp, keys, map, mapValues, pick, pipe, prop, unique } from 'remeda'
+import { flatMap, groupByProp, keys, map, mapValues, pipe, prop, unique } from 'remeda'
 import { match } from 'ts-pattern'
 import { InferKind } from './infer'
 import { checkKindMod } from './check'
@@ -28,6 +25,7 @@ export type ResolveMap = {
   dataDecl: never
   import: never
   mod: ModRes
+  bindingHost: BindingHostRes
   case: CaseResExpr
   ann: AnnExpr<{}, 'res'>
   cond: CondExpr<{}, 'res'>
@@ -91,23 +89,74 @@ export const resolveImpls: ResolveImpls = {
     yes: env.resolve(expr.yes),
     no: env.resolve(expr.no),
   }),
-  let: (env, expr) => pipe(
-    expr.bindings,
-    map(env.resolve),
-    bindings => pipe(
-      bindings,
-      map(binding => binding.idSet),
-      Set.disjointUnion,
-      env.unwrapConflictDef,
-      (idSet): LetResExpr => ({
-        type: 'letRes',
-        bindings,
-        idSet,
-        bindingGroups: [],
-        body: env.resolve(expr.body),
-      })
+  bindingHost: (env, host) => {
+    const declDict: Dict<Decl> = pipe(
+      host.decls,
+      flatMap(decl => decl.vars.map(({ id }) => [id, decl] as const)),
+      fromEntriesStrict,
+      env.unwrapDuplicate('decl')
     )
-  ),
+    const fixityDict: Dict<FixityDecl> = pipe(
+      host.fixityDecls,
+      flatMap(decl => decl.vars.map(({ id }) => [id, decl] as const)),
+      fromEntriesStrict,
+      env.unwrapDuplicate('fixityDecl')
+    )
+
+    const bindingDefs = host.bindingDefs.map(env.resolve)
+    const bindingDefIdSet = pipe(
+      host.bindingDefs,
+      map(def => def.binding.lhs),
+      collectPatternListVarsStrict,
+      env.unwrapConflictDef,
+    )
+
+    const equationDefGroupDict = Dict.empty<EquationDefGroupRes>()
+    for (const def of host.equationDefs) {
+      const { var: { id }, params: { length: arity } } = def.equation
+
+      if (bindingDefIdSet.has(id)) env.panic({ type: 'ConflictDef', id })
+
+      const group = equationDefGroupDict[id]
+      const getResolved = () => env.resolve(def)
+      if (group) {
+        if (group.arity !== arity) env.panic({ type: 'DiffEquationArity', id })
+        group.equationDefs.push(getResolved())
+      }
+      else {
+        equationDefGroupDict[id] = {
+          type: 'equationDefGroupRes',
+          id,
+          arity,
+          equationDefs: [getResolved()],
+        }
+      }
+    }
+
+    const equationDefIdSet = Set.of(keys(equationDefGroupDict))
+    const idSet = Set.union([bindingDefIdSet, equationDefIdSet])
+
+    for (const id in declDict) {
+      if (! idSet.has(id)) env.panic({ type: 'MissingDef', id })
+    }
+
+    return {
+      type: 'bindingHostRes',
+      declDict,
+      fixityDict,
+      bindingDefs,
+      bindingDefIdSet,
+      equationDefGroupDict,
+      equationDefIdSet,
+      idSet,
+      bindingGroups: [],
+    }
+  },
+  let: (env, expr) => ({
+    type: 'letRes',
+    bindingHost: env.resolve(expr.bindingHost),
+    body: env.resolve(expr.body),
+  }),
   binding: (env, binding) => ({
     type: 'bindingRes',
     lhs: env.resolve(binding.lhs),
@@ -223,19 +272,6 @@ export const resolveImpls: ResolveImpls = {
       })),
     )
 
-    const declDict = pipe(
-      mod.decls,
-      flatMap(decl => decl.vars.map(({ id }) => [id, decl] as const)),
-      fromEntriesStrict,
-      env.unwrapDuplicate('decl')
-    )
-    const fixityDict = pipe(
-      mod.fixityDecls,
-      flatMap(decl => decl.vars.map(({ id }) => [id, pick(decl, ['assoc', 'prec'])] as const)),
-      fromEntriesStrict,
-      env.unwrapDuplicate('fixityDecl')
-    )
-
     const dataConIdSet = pipe(
       mod.dataDecls,
       flatMap(decl => decl.data.cons.map(({ id }) => id)),
@@ -250,58 +286,18 @@ export const resolveImpls: ResolveImpls = {
       env.unwrapDuplicate('dataDecl'),
     )
 
-    const bindingDefs = mod.bindingDefs.map(env.resolve)
-    const bindingDefIdSet = pipe(
-      mod.bindingDefs,
-      map(def => def.binding.lhs),
-      collectPatternListVarsStrict,
-      env.unwrapConflictDef,
-    )
-
-    const equationDefGroupDict = Dict.empty<EquationDefGroupRes>()
-    for (const def of mod.equationDefs) {
-      const { var: { id }, params: { length: arity } } = def.equation
-
-      if (bindingDefIdSet.has(id)) env.panic({ type: 'ConflictDef', id })
-
-      const group = equationDefGroupDict[id]
-      const getResolved = () => env.resolve(def)
-      if (group) {
-        if (group.arity !== arity) env.panic({ type: 'DiffEquationArity', id })
-        group.equationDefs.push(getResolved())
-      }
-      else {
-        equationDefGroupDict[id] = {
-          type: 'equationDefGroupRes',
-          id,
-          arity,
-          equationDefs: [getResolved()],
-        }
-      }
-    }
-
-    const equationDefIdSet = Set.of(keys(equationDefGroupDict))
-    const idSet = Set.union([bindingDefIdSet, equationDefIdSet, dataConIdSet])
-
-    for (const id in declDict) {
-      if (! idSet.has(id)) env.panic({ type: 'MissingDef', id })
-    }
+    const bindingHost = env.resolve(mod.bindingHost)
+    const idSet = Set.union([dataConIdSet, bindingHost.idSet])
 
     const modRes: ModRes = {
       ...mod,
       type: 'modRes',
-      bindingDefs,
-      bindingDefIdSet,
-      equationDefIdSet,
-      equationDefGroupDict,
-      dataConIdSet,
-      idSet,
       importDict,
       importModIdSet,
-      declDict,
-      fixityDict,
+      dataConIdSet,
       dataDict,
-      bindingGroups: [],
+      idSet,
+      bindingHost,
     }
 
     return modRes

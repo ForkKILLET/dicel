@@ -150,7 +150,7 @@ const disLabelWidth = computed(() => Math.max(...disBars.value.map(bar => bar.wi
       <div class="badge">execute</div>
       <template v-if="(result.err instanceof EvaluateError)">
         <pre>{{ result.err }}</pre>
-        at <NodeV :node="result.err.expr" />
+        at <NodeV :node="result.err.node" />
       </template>
       <template v-else>
         Internal {{ result.err }}

@@ -3,10 +3,13 @@ import { match } from 'ts-pattern'
 import {
   NumExpr, UnitExpr, VarExpr, CondExpr, ApplyExpr, ExprDes, LambdaResExpr, TypeNode,
   AnnExpr, PatternDes, Node, SectionLExpr, SectionRExpr, NodeResType, ModRes,
-  NodeRes, LetResExpr, BindingRes, BindingDefRes, CaseBranchRes, CaseResExpr, PatternRes,
+  NodeRes, BindingRes, BindingDefRes, CaseBranchRes, CaseResExpr, PatternRes,
   ModDes, EquationRes, EquationDefRes,
   ApplyExprCurried, TupleExprAuto,
   TuplePatternAuto, LambdaExprCurried,
+  BindingHostDes,
+  LetDesExpr,
+  BindingHostRes,
 } from './nodes'
 import { extractMaybeInfixOp } from './parse'
 import { Dict, Set, id } from './utils'
@@ -18,7 +21,7 @@ export type DesugarMap = {
   unit: UnitExpr
   num: NumExpr
   var: VarExpr
-  letRes: LetResExpr<{}, 'des'>
+  letRes: LetDesExpr
   caseRes: CaseResExpr<{}, 'des'>
   cond: CondExpr<{}, 'des'>
   roll: ApplyExpr<{}, 'des'>
@@ -37,6 +40,7 @@ export type DesugarMap = {
   list: ExprDes
   paren: ExprDes
   pattern: PatternDes
+  bindingHostRes: BindingHostDes
   bindingDefRes: BindingDefRes<{}, 'des'>
   equationDefRes: EquationDefRes<{}, 'des'>
   equationDefGroupRes: BindingDefRes<{}, 'des'>
@@ -45,14 +49,28 @@ export type DesugarMap = {
 export const assertDesugarMapCorrect: [NodeResType, keyof DesugarMap] =
   {} as [keyof DesugarMap, NodeResType]
 
-export type DesugarInput = {
+export type DesugarState = {
   fixityDict: Record<string, Fixity>
 }
 
-export type DesugarEnv = DesugarInput & {
+export type DesugarEnv = {
+  state: DesugarState
   desugar: <K extends NodeResType>(node: Extract<NodeRes, { type: K }>) => DesugarMap[K]
   panic: (err: Desugar.Err) => never
   getFixity: (op: string) => Fixity
+  fork: () => DesugarEnv
+}
+
+export const DesugarEnv = (state: DesugarState): DesugarEnv => {
+  const env: DesugarEnv = {
+    state,
+    desugar: <K extends NodeResType>(node: Extract<NodeRes, { type: K }>): DesugarMap[K] =>
+      desugarImpls[node.type](env, node),
+    panic: (err: Desugar.Err) => { throw err },
+    getFixity: (op: string) => env.state.fixityDict[op] ?? Fixity.def(),
+    fork: () => DesugarEnv({ ...env.state })
+  }
+  return env
 }
 
 export type DesugarImpls = {
@@ -63,11 +81,15 @@ export const desugarImpls: DesugarImpls = {
   num: (_env, expr) => expr,
   unit: (_env, expr) => expr,
   var: (_env, expr) => expr,
-  letRes: (env, expr) => ({
-    ...expr,
-    bindings: expr.bindings.map(env.desugar),
-    body: env.desugar(expr.body),
-  }),
+  letRes: (env, expr) => {
+    const envLet = env.fork()
+    const bindingHost = envLet.desugar(expr.bindingHost)
+    return {
+      type: 'letDes',
+      bindingHost,
+      body: envLet.desugar(expr.body),
+    }
+  },
   caseRes: (env, expr) => ({
     ...expr,
     subject: env.desugar(expr.subject),
@@ -304,17 +326,21 @@ export const desugarImpls: DesugarImpls = {
       binding,
     }
   },
+  bindingHostRes: (env, host) => {
+    env.state.fixityDict = { ...env.state.fixityDict, ...host.fixityDict }
+    return {
+      ...host,
+      type: 'bindingHostDes',
+      bindings: [
+        ...values(host.equationDefGroupDict).map(env.desugar),
+        ...host.bindingDefs.map(env.desugar),
+      ].map(def => def.binding),
+    }
+  },
   modRes: (env, mod) => ({
     ...mod,
     type: 'modDes',
-    bindingDefs: [
-      ...mod.bindingDefs.map(env.desugar),
-      ...values(mod.equationDefGroupDict).map(env.desugar),
-    ],
-    bindingDefIdSet: Set.union([
-      mod.bindingDefIdSet,
-      mod.equationDefIdSet,
-    ]),
+    bindingHost: env.desugar(mod.bindingHost),
   })
 }
 
@@ -330,14 +356,8 @@ export namespace Desugar {
   export type Res<K extends NodeResType> = Result<Ok<K>, Err>
 }
 
-export const desugar = <K extends NodeResType>(input: DesugarInput, node: Extract<NodeRes, { type: K }>): Desugar.Res<K> => {
-  const env: DesugarEnv = {
-    ...input,
-    desugar: <K extends NodeResType>(node: Extract<NodeRes, { type: K }>): DesugarMap[K] =>
-      desugarImpls[node.type](env, node),
-    panic: (err: Desugar.Err) => { throw err },
-    getFixity: (op: string) => env.fixityDict[op] ?? Fixity.def(),
-  }
+export const desugar = <K extends NodeResType>(input: DesugarState, node: Extract<NodeRes, { type: K }>): Desugar.Res<K> => {
+  const env = DesugarEnv(input)
   return Result.wrap<Desugar.Ok<K>, Desugar.Err>(() => env.desugar(node))
 }
 
@@ -348,7 +368,7 @@ export const desugarMod = (mod: ModRes, { compiledMods }: { compiledMods: Dict<C
     mergeAll,
   )
   return desugar(
-    { fixityDict: { ...builtinFixityDict, ...compiledFixityDict, ...mod.fixityDict } },
+    { fixityDict: { ...builtinFixityDict, ...compiledFixityDict, ...mod.bindingHost.fixityDict } },
     mod
   )
 }

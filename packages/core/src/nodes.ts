@@ -5,7 +5,7 @@ import { Type } from './types'
 import { Data } from './data'
 import { isSymbolOrComma } from './lex'
 import { Fixity } from './lex'
-import { mapValues, pipe } from 'remeda'
+import { entries, mapValues, pipe, values } from 'remeda'
 import { BindingGroup } from './infer'
 
 export type DRange = { range: Range }
@@ -130,16 +130,20 @@ export type EquationRes<D = {}, S extends NodeStage = 'res'> = D & {
 
 export type LetExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'let'
-  bindings: Binding<D, S>[]
+  bindingHost: BindingHost<D, S>
   body: ExprS<D, S>
 }
 
 export type LetResExpr<D = {}, S extends NodeStage = 'res'> = D & {
   type: 'letRes'
-  bindings: BindingRes<D, S>[]
+  bindingHost: BindingHostRes<D, S>
   body: ExprS<D, S>
-  idSet: Set<string>
-  bindingGroups: BindingGroup.Group[]
+}
+
+export type LetDesExpr<D = {}, S extends NodeStage = 'des'> = D & {
+  type: 'letDes'
+  bindingHost: BindingHostDes<D, S>
+  body: ExprS<D, S>
 }
 
 export type ParenExpr<D = {}, S extends NodeStage = 'raw'> = D & {
@@ -335,67 +339,90 @@ export type Import = {
   idSet: Set<string> | null
 }
 
-export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {
-  type: 'mod'
-  bindingDefs: BindingDef<D, S>[]
-  equationDefs: EquationDef<D, S>[]
-  imports: ImportDecl<D>[]
+export type BindingHost<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'bindingHost'
+
   decls: Decl<D>[]
   fixityDecls: FixityDecl<D>[]
+
+  bindingDefs: BindingDef<D, S>[]
+  equationDefs: EquationDef<D, S>[]
+}
+
+export type BindingHostRes<D = {}, S extends NodeStage = 'res'> = D & {
+  type: 'bindingHostRes'
+
+  declDict: Dict<Decl>
+  fixityDict: Dict<FixityDecl>
+
+  bindingDefs: BindingDefRes<D, S>[]
+  bindingDefIdSet: Set<string>
+
+  equationDefGroupDict: Dict<EquationDefGroupRes<D, S>>
+  equationDefIdSet: Set<string>
+
+  idSet: Set<string>
+  bindingGroups: BindingGroup.Group[]
+}
+
+export type BindingHostDes<D = {}, S extends NodeStage = 'des'> = D & {
+  type: 'bindingHostDes'
+
+  declDict: Dict<Decl>
+  fixityDict: Dict<FixityDecl>
+
+  bindings: BindingRes<D, S>[]
+  idSet: Set<string>
+  bindingGroups: BindingGroup.Group[]
+}
+
+export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'mod'
+
+  imports: ImportDecl<D>[]
   dataDecls: DataDecl<D>[]
+
+  bindingHost: BindingHost<D, S>
 }
 
 export type ModRes<D = {}, S extends NodeStage = 'res'> = D & {
   type: 'modRes'
-  bindingDefs: BindingDefRes<D, S>[]
+
   imports: ImportDecl<D>[]
-  decls: Decl<D>[]
-  fixityDecls: FixityDecl<D>[]
   dataDecls: DataDecl<D>[]
-
-  equationDefIdSet: Set<string>
-  equationDefGroupDict: Dict<EquationDefGroupRes<D, S>>
-
-  bindingDefIdSet: Set<string>
-  dataConIdSet: Set<string>
-  idSet: Set<string>
+  dataDict: Dict<Data>
 
   importDict: Dict<Import>
   importModIdSet: Set<string>
-  declDict: Dict<Decl>
-  fixityDict: Dict<Fixity>
-  dataDict: Dict<Data>
+  dataConIdSet: Set<string>
 
-  bindingGroups: BindingGroup.Group[]
+  bindingHost: BindingHostRes<D, S>
+
+  idSet: Set<string>
 }
 
 export type ModDes<D = {}, S extends NodeStage = 'des'> = D & {
   type: 'modDes'
-  bindingDefs: BindingDefRes<D, S>[]
-  imports: ImportDecl<D>[]
-  decls: Decl<D>[]
-  fixityDecls: FixityDecl<D>[]
-  dataDecls: DataDecl<D>[]
 
-  bindingDefIdSet: Set<string>
-  dataConIdSet: Set<string>
-  idSet: Set<string>
+  imports: ImportDecl<D>[]
+  dataDecls: DataDecl<D>[]
+  dataDict: Dict<Data>
 
   importDict: Dict<Import>
   importModIdSet: Set<string>
-  declDict: Dict<Decl>
-  fixityDict: Dict<Fixity>
-  dataDict: Dict<Data>
+  dataConIdSet: Set<string>
 
-  bindingGroups: BindingGroup.Group[]
+  bindingHost: BindingHostDes<D, S>
+
+  idSet: Set<string>
 }
 
 export type Class = {
-  typeParams: string[]
-  defs: BindingDef[]
+  typeParam: string[]
+  decls: Decl[]
 }
-export type ClassDef = {
-  type: 'classDef'
+export type ClassDecl = {
+  type: 'classDecl'
   id: string
   class: Class
 }
@@ -429,11 +456,11 @@ export type ExprRaw<D = {}> =
   | ExprRawToDes<D, 'raw'>
 
 export type ExprResToRes<D = {}, S extends NodeStage = 'res'> =
+  | LetResExpr<D, S>
   | LambdaCaseResExpr<D, S>
   | LambdaMultiResExpr<D, S>
 
 export type ExprResToDes<D = {}, S extends NodeStage = 'res'> =
-  | LetResExpr<D, S>
   | CaseResExpr<D, S>
 
 export type ExprRes<D = {}> =
@@ -443,6 +470,7 @@ export type ExprRes<D = {}> =
   | ExprResToDes<D, 'res'>
 
 export type ExprDesToDes<D = {}, S extends NodeStage = 'des'> =
+  | LetDesExpr<D, S>
   | LambdaResExpr<D, S>
   | ApplyExpr<D, S>
 
@@ -516,6 +544,7 @@ export type NodeRawToRaw<D = {}, S extends NodeStage = 'raw'> =
   | ExprRawToRaw<D, S>
   | PatternRawToRaw<D, S>
   | Mod<D, S>
+  | BindingHost<D, S>
   | BindingDef<D, S>
   | EquationDef<D, S>
   | Decl<D>
@@ -544,6 +573,7 @@ export type NodeResToRes<D = {}, S extends NodeStage = 'res'> =
   | ExprResToRes<D, S>
   | PatternResToRes<D, S>
   | ModRes<D, S>
+  | BindingHostRes<D, S>
   | EquationRes<D, S>
   | EquationDefRes<D, S>
   | EquationDefGroupRes<D, S>
@@ -565,6 +595,7 @@ export type NodeDesToDes<D = {}, S extends NodeStage = 'des'> =
   | ExprDesToDes<D, S>
   | PatternDesToDes<D, S>
   | ModDes<D, S>
+  | BindingHostDes<D, S>
 
 export type NodeDes<D = {}> =
   | NodeRawToDes<D, 'des'>
@@ -631,145 +662,169 @@ export namespace Node {
 
   export const show = describeToShow<Node, Node>(
     expr => expr,
-    (expr, show): string => match<Node, string>(expr)
-      .with({ type: 'num' }, expr => String(expr.val))
-      .with({ type: 'unit' }, () => '()')
-      .with({ type: 'var' }, expr => expr.id)
-      .with({ type: 'cond' }, expr =>
-        `${show(expr.cond)} ? ${show(expr.yes)} : ${show(expr.no)}`
-      )
-      .with({ type: 'let' }, { type: 'letRes' }, expr =>
-        `let ${expr.bindings.map(show).join('; ')} in ${show(expr.body)}`
-      )
-      .with({ type: 'case' }, { type: 'caseRes' }, expr =>
-        `case ${show(expr.subject)} of ${expr.branches.map(show).join('; ')}`
-      )
-      .with({ type: 'caseBranch' }, { type: 'caseBranchRes' }, branch =>
-        `${show(branch.pattern)} -> ${show(branch.body)}`
-      )
-      .with({ type: 'pattern' }, Pattern.show)
-      .with({ type: 'binding' }, { type: 'bindingRes' },
-        binding => `${show(binding.lhs)} = ${show(binding.rhs)}`
-      )
-      .with({ type: 'equation' }, { type: 'equationRes' }, expr =>
-        `${show(expr.var)} ${expr.params.map(show).join(' ')} = ${show(expr.rhs)}`
-      )
-      .with({ type: 'lambdaMulti' }, { type: 'lambdaMultiRes' }, expr =>
-        `(\\${expr.params.map(show).join(' ')} -> ${show(expr.body)})`
-      )
-      .with({ type: 'lambdaRes' }, expr =>
-        `(\\${show(expr.param)} -> ${show(expr.body)})`
-      )
-      .with({ type: 'applyMulti' }, expr =>
-        `(${show(expr.func)} ${expr.args.map(show).join(' ')})`
-      )
-      .with({ type: 'apply' }, expr =>
-        `(${show(expr.func)} ${show(expr.arg)})`
-      )
-      .with({ type: 'infix' }, expr => expr.args
-        .map((arg, i) => `${show(arg)}${i < expr.args.length - 1 ? ` ${show(expr.ops[i])} ` : ''}`)
-        .join('')
-      )
-      .with({ type: 'sectionL' }, expr =>
-        `(${show(expr.arg)} ${show(expr.op)})`
-      )
-      .with({ type: 'sectionR' }, expr =>
-        `(${show(expr.op)} ${show(expr.arg)})`
-      )
-      .with({ type: 'roll' }, expr =>
-        `(${expr.times === null ? '' : show(expr.times)}@${show(expr.sides)})`
-      )
-      .with({ type: 'ann' }, expr =>
-        `(${show(expr.expr)} :: ${show(expr.ann)})`
-      )
-      .with({ type: 'typeNode' }, type => Type.show(type.val))
-      .with({ type: 'bindingDef' }, { type: 'bindingDefRes' }, def => show(def.binding))
-      .with({ type: 'equationDef' }, { type: 'equationDefRes' }, def => show(def.equation))
-      .with({ type: 'equationDefGroupRes' }, def =>
-        def.equationDefs.map(show).join('\n')
-      )
-      .with({ type: 'decl' }, decl =>
-        `${decl.vars.map(show).join(',')} :: ${show(decl.ann)}`
-      )
-      .with({ type: 'fixityDecl' }, decl =>
-        `${Fixity.show(decl)} ${decl.vars.map(show).join(', ')}`
-      )
-      .with({ type: 'dataDecl' }, def =>
-        `data ${[def.id, ...def.data.typeParams].join(' ')} = ${
-          def.data.cons
-            .map(({ id, params }) => `${id}${params.map(param => ` ${Type.show(param)}`).join(' ')}`)
-            .join(' | ')
-        }`
-      )
-      .with({ type: 'import' }, ({ modId: mod }) =>
-        `import ${mod}`
-      )
-      .with({ type: 'mod' }, { type: 'modRes' }, { type: 'modDes' }, mod => [
-        ...mod.dataDecls,
-        ...mod.decls,
-        ...mod.bindingDefs,
-        ...mod.fixityDecls,
-      ].map(show).join('\n\n'))
-      .with({ type: 'lambdaCase' }, { type: 'lambdaCaseRes' }, expr =>
-        `\case ${expr.branches.map(show).join('; ')}`
-      )
-      .with({ type: 'list' }, expr =>
-        `[${expr.elems.map(show).join(', ')}]`
-      )
-      .with({ type: 'tuple' }, expr =>
-        `(${expr.elems.map(show).join(', ')})`
-      )
-      .with({ type: 'paren' }, expr => `(${show(expr.expr)})`)
-      .exhaustive(),
+    (node, show): string => {
+      switch (node.type) {
+        case 'num':
+          return String(node.val)
+        case 'unit':
+          return '()'
+        case 'var':
+          return node.id
+        case 'cond':
+          return `${show(node.cond)} ? ${show(node.yes)} : ${show(node.no)}`
+        case 'let':
+        case 'letRes':
+        case 'letDes':
+          return `let ${show(node.bindingHost)} in ${show(node.body)}`
+        case 'case':
+        case 'caseRes':
+          return `case ${show(node.subject)} of ${node.branches.map(show).join('; ')}`
+        case 'caseBranch':
+        case 'caseBranchRes':
+          return `${show(node.pattern)} -> ${show(node.body)}`
+        case 'pattern':
+          return Pattern.show(node)
+        case 'binding':
+        case 'bindingRes':
+          return `${show(node.lhs)} = ${show(node.rhs)}`
+        case 'equation':
+        case 'equationRes':
+          return `${show(node.var)} ${node.params.map(show).join(' ')} = ${show(node.rhs)}`
+        case 'lambdaMulti':
+        case 'lambdaMultiRes':
+          return `(\\${node.params.map(show).join(' ')} -> ${show(node.body)})`
+        case 'lambdaRes':
+          return `(\\${show(node.param)} -> ${show(node.body)})`
+        case 'applyMulti':
+          return `(${show(node.func)} ${node.args.map(show).join(' ')})`
+        case 'apply':
+          return `(${show(node.func)} ${show(node.arg)})`
+        case 'infix':
+          return node.args
+            .map((arg, i) => `${show(arg)}${i < node.args.length - 1 ? ` ${show(node.ops[i])} ` : ''}`)
+            .join('')
+        case 'sectionL':
+          return `(${show(node.arg)} ${show(node.op)})`
+        case 'sectionR':
+          return `(${show(node.op)} ${show(node.arg)})`
+        case 'roll':
+          return `(${node.times === null ? '' : show(node.times)}@${show(node.sides)})`
+        case 'ann':
+          return `(${show(node.expr)} :: ${show(node.ann)})`
+        case 'typeNode':
+          return Type.show(node.val)
+        case 'bindingDef':
+        case 'bindingDefRes':
+          return show(node.binding)
+        case 'equationDef':
+        case 'equationDefRes':
+          return show(node.equation)
+        case 'equationDefGroupRes':
+          return node.equationDefs.map(show).join('\n')
+        case 'decl':
+          return `${node.vars.map(show).join(',')} :: ${show(node.ann)}`
+        case 'fixityDecl':
+          return `${Fixity.show(node)} ${node.vars.map(show).join(', ')}`
+        case 'dataDecl':
+          return `data ${[node.id, ...node.data.typeParams].join(' ')} = ${
+            node.data.cons
+              .map(({ id, params }) => `${id}${params.map(param => ` ${Type.show(param)}`).join(' ')}`)
+              .join(' | ')
+          }`
+        case 'import':
+          return `import ${node.modId}`
+        case 'mod':
+        case 'modRes':
+        case 'modDes':
+          return [
+            ...node.imports,
+            ...node.dataDecls,
+            node.bindingHost,
+          ].map(show).join('\n\n')
+        case 'bindingHost':
+          return [
+            ...node.decls,
+            ...node.fixityDecls,
+            ...node.equationDefs,
+            ...node.bindingDefs,
+          ].map(show).join('\n\n')
+        case 'bindingHostRes':
+          return [
+            ...values(node.declDict),
+            ...values(node.fixityDict),
+            ...values(node.equationDefGroupDict).flatMap(group => group.equationDefs),
+            ...node.bindingDefs,
+          ].map(show).join('\n\n')
+        case 'bindingHostDes':
+          return [
+            ...values(node.declDict),
+            ...values(node.fixityDict),
+            ...node.bindings,
+          ].map(show).join('\n\n')
+        case 'lambdaCase':
+        case 'lambdaCaseRes':
+          return `\\case ${node.branches.map(show).join('\n')}`
+        case 'list':
+          return `[${node.elems.map(show).join(', ')}]`
+        case 'tuple':
+          return `(${node.elems.map(show).join(', ')})`
+        case 'paren':
+          return `(${show(node.expr)})`
+      }
+    },
     needsParen,
   )
 }
 
-export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> = {
-  unit: UnitExpr<D>
-  num: NumExpr<D>
-  var: VarExpr<D>
-  pattern: PatternS<D, S>
-  typeNode: TypeNode<D>
-  let: LetExpr<D>
-  letRes: LetResExpr<D, S>
-  case: CaseExpr<D, S>
-  caseRes: CaseResExpr<D, S>
-  cond: CondExpr<D, S>
-  apply: ApplyExpr<D, S>
-  applyMulti: ApplyMultiExpr<D, S>
-  lambdaRes: LambdaResExpr<D, S>
-  lambdaMulti: LambdaMultiExpr<D, S>
-  lambdaMultiRes: LambdaMultiResExpr<D, S>
-  lambdaCase: LambdaCaseExpr<D, S>
-  lambdaCaseRes: LambdaCaseResExpr<D, S>
-  ann: AnnExpr<D, S>
-  binding: Binding<D, S>
-  bindingRes: BindingRes<D, S>
-  equation: Equation<D, S>
-  equationRes: Equation<D, S>
-  caseBranch: CaseBranch<D, S>
-  caseBranchRes: CaseBranchRes<D, S>
-  bindingDef: BindingDef<D, S>
-  bindingDefRes: BindingDefRes<D, S>
-  equationDef: EquationDef<D, S>
-  equationDefRes: EquationDefRes<D, S>
-  equationDefGroupRes: EquationDefGroupRes<D, S>
-  decl: Decl<D>
-  fixityDecl: FixityDecl<D>
-  dataDecl: DataDecl<D>
-  import: ImportDecl<D>
-  mod: Mod<D, S>
-  modRes: ModRes<D, S>
-  modDes: ModDes<D, S>
-  roll: RollExpr<D, S>
-  infix: InfixExpr<D, S>
-  sectionL: SectionLExpr<D, S>
-  sectionR: SectionRExpr<D, S>
-  list: ListExpr<D, S>
-  tuple: TupleExprAuto<D, S>
-  paren: ParenExpr<D, S>
-}[K]
+export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> =
+  K extends 'unit' ? UnitExpr<D> :
+  K extends 'num' ? NumExpr<D> :
+  K extends 'var' ? VarExpr<D> :
+  K extends 'pattern' ? PatternS<D, S> :
+  K extends 'typeNode' ? TypeNode<D> :
+  K extends 'let' ? LetExpr<D> :
+  K extends 'letRes' ? LetResExpr<D, S> :
+  K extends 'letDes' ? LetDesExpr<D, S> :
+  K extends 'case' ? CaseExpr<D, S> :
+  K extends 'caseRes' ? CaseResExpr<D, S> :
+  K extends 'cond' ? CondExpr<D, S> :
+  K extends 'apply' ? ApplyExpr<D, S> :
+  K extends 'applyMulti' ? ApplyMultiExpr<D, S> :
+  K extends 'lambdaRes' ? LambdaResExpr<D, S> :
+  K extends 'lambdaMulti' ? LambdaMultiExpr<D, S> :
+  K extends 'lambdaMultiRes' ? LambdaMultiResExpr<D, S> :
+  K extends 'lambdaCase' ? LambdaCaseExpr<D, S> :
+  K extends 'lambdaCaseRes' ? LambdaCaseResExpr<D, S> :
+  K extends 'ann' ? AnnExpr<D, S> :
+  K extends 'binding' ? Binding<D, S> :
+  K extends 'bindingRes' ? BindingRes<D, S> :
+  K extends 'equation' ? Equation<D, S> :
+  K extends 'equationRes' ? EquationRes<D, S> :
+  K extends 'caseBranch' ? CaseBranch<D, S> :
+  K extends 'caseBranchRes' ? CaseBranchRes<D, S> :
+  K extends 'bindingDef' ? BindingDef<D, S> :
+  K extends 'bindingDefRes' ? BindingDefRes<D, S> :
+  K extends 'equationDef' ? EquationDef<D, S> :
+  K extends 'equationDefRes' ? EquationDefRes<D, S> :
+  K extends 'equationDefGroupRes' ? EquationDefGroupRes<D, S> :
+  K extends 'decl' ? Decl<D> :
+  K extends 'fixityDecl' ? FixityDecl<D> :
+  K extends 'dataDecl' ? DataDecl<D> :
+  K extends 'import' ? ImportDecl<D> :
+  K extends 'mod' ? Mod<D, S> :
+  K extends 'modRes' ? ModRes<D, S> :
+  K extends 'bindingHost' ? BindingHost<D, S> :
+  K extends 'bindingHostRes' ? BindingHostRes<D, S> :
+  K extends 'bindingHostDes' ? BindingHostDes<D, S> :
+  K extends 'modDes' ? ModDes<D, S> :
+  K extends 'roll' ? RollExpr<D, S> :
+  K extends 'infix' ? InfixExpr<D, S> :
+  K extends 'sectionL' ? SectionLExpr<D, S> :
+  K extends 'sectionR' ? SectionRExpr<D, S> :
+  K extends 'list' ? ListExpr<D, S> :
+  K extends 'tuple' ? TupleExprAuto<D, S> :
+  K extends 'paren' ? ParenExpr<D, S> :
+  never;
 
 export const withId = <K extends NodeRawType, D>(node: NodeH<K, D>): NodeH<K, D & DId> => {
   let id = 0
@@ -807,7 +862,7 @@ export const withId = <K extends NodeRawType, D>(node: NodeH<K, D>): NodeH<K, D 
         newNode.sides = traverse<ExprRawType>(newNode.sides)
         break
       case 'let':
-        newNode.bindings = newNode.bindings.map(traverse<'binding'>)
+        newNode.bindingHost = traverse<'bindingHost'>(newNode.bindingHost)
         newNode.body = traverse<ExprRawType>(newNode.body)
         break
       case 'case':
@@ -884,11 +939,14 @@ export const withId = <K extends NodeRawType, D>(node: NodeH<K, D>): NodeH<K, D 
         break
       case 'mod':
         newNode.imports = newNode.imports.map(traverse<'import'>)
-        newNode.bindingDefs = newNode.bindingDefs.map(traverse<'bindingDef'>)
-        newNode.equationDefs = newNode.equationDefs.map(traverse<'equationDef'>)
+        newNode.bindingHost = traverse<'bindingHost'>(newNode.bindingHost)
+        newNode.dataDecls = newNode.dataDecls.map(traverse<'dataDecl'>)
+        break
+      case 'bindingHost':
         newNode.decls = newNode.decls.map(traverse<'decl'>)
         newNode.fixityDecls = newNode.fixityDecls.map(traverse<'fixityDecl'>)
-        newNode.dataDecls = newNode.dataDecls.map(traverse<'dataDecl'>)
+        newNode.bindingDefs = newNode.bindingDefs.map(traverse<'bindingDef'>)
+        newNode.equationDefs = newNode.equationDefs.map(traverse<'equationDef'>)
         break
     }
     return newNode as NodeH<K, D & DId>

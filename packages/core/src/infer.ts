@@ -2,7 +2,7 @@ import { match } from 'ts-pattern'
 import { fromEntries, keys, map, mapValues, mergeAll, omit, pick, pipe, reduce, unique, values } from 'remeda'
 import { Err, Ok, Result } from 'fk-result'
 import { Type, ConType, VarType, FuncType, TypeScheme, ApplyType, FuncTypeCurried, RigidVarType, Kind, KindEnv, TypeEnv, TypeSubst, VarKind, FuncKind, KindSubst, TypeKind, FuncKindCurried, VarTypeSet } from './types'
-import { BindingRes, DataDecl, Decl, ExprDes, LetResExpr, ModDes, Node, PatternDes } from './nodes'
+import { BindingHostDes, BindingRes, DataDecl, Decl, ExprDes, LetResExpr, ModDes, Node, PatternDes } from './nodes'
 import { Map, the, Set, Graph, Dict, memberOf, Iter } from './utils'
 import { SubbedPair } from './utils/match'
 
@@ -248,6 +248,9 @@ export const collectTypeTypeVars = (type: Type): VarTypeSet => match<Type, VarTy
 export const collectTypeSchemeTypeVars = (scheme: TypeScheme): VarTypeSet =>
   collectTypeTypeVars(scheme.type).difference(scheme.typeParamSet)
 
+export const collectBindingHostVars = (bindingHost: BindingHostDes): Set<string> =>
+  Set.union(bindingHost.bindings.map(binding => collectExprVars(binding.rhs)))
+
 export const collectExprVars = (expr: ExprDes): Set<string> => match<ExprDes, Set<string>>(expr)
   .with({ type: 'ann' }, ({ expr }) => collectExprVars(expr))
   .with({ type: 'apply' }, ({ func, arg }) =>
@@ -262,8 +265,8 @@ export const collectExprVars = (expr: ExprDes): Set<string> => match<ExprDes, Se
   .with({ type: 'lambdaRes' }, ({ body, idSet }) =>
     collectExprVars(body).difference(idSet)
   )
-  .with({ type: 'letRes' }, ({ bindings, body, idSet: ids }) =>
-    Set.union([collectExprVars(body), ...bindings.map(({ rhs }) => collectExprVars(rhs))]).difference(ids)
+  .with({ type: 'letDes' }, ({ bindingHost, body }) =>
+    Set.union([collectExprVars(body), collectBindingHostVars(bindingHost)]).difference(bindingHost.idSet)
   )
   .with({ type: 'var' }, ({ id }) => Set.of([id]))
   .otherwise(() => Set.empty())
@@ -446,15 +449,13 @@ export class TypeInferer {
       }))
   }
 
-  inferBindings(
-    bindings: BindingRes<{}, 'des'>[],
-    declMap: Dict<Decl>,
+  inferBindingHost(
+    bindingsHost: BindingHostDes,
     env: TypeEnv,
-    node: ModDes | LetResExpr<{}, 'des'>,
   ): InferBinding.Res {
     return Result
       .fold(
-        bindings,
+        bindingsHost.bindings,
         { envH: TypeEnv.empty(), typedBindings: Array.of<TypedBinding>() },
         ({ envH, typedBindings }, binding) => this
           .inferPattern(binding.lhs, { ...env, ...envH })
@@ -469,13 +470,13 @@ export class TypeInferer {
           }))
       )
       .bind(({ envH, typedBindings }) => {
-        const groups = node.bindingGroups = resolveBindingGroups(typedBindings, envH) // TODO: => Checked AST
+        const groups = bindingsHost.bindingGroups = resolveBindingGroups(typedBindings, envH)
         return Result
           .fold(
             groups,
             { substC: TypeSubst.empty(), envS: { ...env, ...envH } },
             ({ substC, envS }, group) => this
-              .inferBindingGroup(group, declMap, envS)
+              .inferBindingGroup(group, bindingsHost.declDict, envS)
               .map(({ subst, env: envSi }) => ({
                 substC: TypeSubst.compose([subst, substC]),
                 envS: { ...envS, ...envSi },
@@ -596,8 +597,8 @@ export class TypeInferer {
           })
         )
       )
-      .with({ type: 'letRes' }, ({ bindings, body }, letExpr) => this
-        .inferBindings(bindings, {}, env, letExpr)
+      .with({ type: 'letDes' }, ({ bindingHost, body }) => this
+        .inferBindingHost(bindingHost, env)
         .bind(({ env: envI, subst: bindingSubst }) => this
           .infer(body, { ...env, ...envI })
           .map(({ type: bodyType, subst: bodySubst }) => ({
