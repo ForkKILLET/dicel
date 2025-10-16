@@ -1,20 +1,14 @@
 # Todo
 
-## 1.0.0
+## 1.0.0 ~ 2.0.0
 
-- (v) refa Expr.show
-- (x) unary operators
-- (v) auto semi => layout
-- (v) patterns at params & bindings
-- (v) lambda case
-- (v) custom ADT
-- (v) dicel IR => Node Stage
-- (v) operator enhancements
+
+- (.) infix enhancements
   - (v) custom operators
   - (v) fixity parsing
   - (v) custom fixity
   - (v) sections
-- (v) comment
+  - ( ) back quotes
 
 - (.) binding groups
   - (v) equations
@@ -28,26 +22,28 @@
     - (v) import values
     - (v) import types & fixities
     - ( ) qualified import
-  - (v) stdlib
   - (v) prelude
+  - ( ) module dep resolution
 
-- (.) check kind
+- (v) check kind
   - (v) check data decls
-  - (v) check type decls
-  - ( ) check annotations
+
+- ( ) guards
+
+- (v) char & string
+
+- ( ) type class
 
 ---
 
 ## Future
 
-- ( ) string
 - ( ) type synonyms
-
-- ( ) type class
 
 - ( ) list comprehension
 
 - ( ) effect system
+
 - ( ) lazy
 
 - ( ) better errors
@@ -57,3 +53,16 @@
 - ( ) compile to ...
   - ( ) LLVM IR
   - ( ) WASM
+
+---
+
+## History
+
+- (v) refa Expr.show
+- (x) unary operators
+- (v) auto semi => layout
+- (v) patterns at params & bindings
+- (v) lambda case
+- (v) custom ADT
+- (v) dicel IR => Node Stage
+- (v) comment

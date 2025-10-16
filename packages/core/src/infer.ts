@@ -558,7 +558,7 @@ export class TypeInferer {
         subst: {},
       }))
       .with({ type: 'unit' }, () => Ok({
-        type: TypeSourced.actual(ConType(''), expr),
+        type: TypeSourced.actual(ConType('()'), expr),
         subst: {},
       }))
       .with({ type: 'var' }, ({ id }) =>
@@ -569,6 +569,14 @@ export class TypeInferer {
           })
           : Err({ type: 'UndefinedVar', id })
       )
+      .with({ type: 'char' }, () => Ok({
+        type: TypeSourced.actual(ConType('Char'), expr),
+        subst: {},
+      }))
+      .with({ type: 'str' }, () => Ok({
+        type: TypeSourced.actual(ApplyType(ConType('[]'), ConType('Char')), expr),
+        subst: {},
+      }))
       .with({ type: 'lambdaRes' }, ({ param, body }) => this
         .inferPattern(param, env)
         .mapErr(InferPattern.wrapErr)
@@ -674,7 +682,7 @@ export class TypeInferer {
             }))
         })
       )
-      .otherwise(() => Err({ type: 'Unreachable' }))
+      .exhaustive()
   }
 }
 

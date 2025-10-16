@@ -1,10 +1,8 @@
-import { entries, map, mapValues, mergeAll, pipe, values } from 'remeda'
-import { ConType, FuncType, VarType, FuncTypeCurried, TypeSchemeDict, ApplyTypeCurried, TypedValueEnv, TypedValue, ApplyType, KindEnv, TypeEnv, FuncKind, FuncNKind, TypeKind, RigidVarType } from './types'
-import { Data, DataEnv, KindedDataEnv } from './data'
-import { ErrValue, FuncValue, FuncValue2, FuncValueJ, FuncValueJ2, NumValue } from './values'
+import { entries, map, mapValues, mergeAll, pipe } from 'remeda'
+import { ConType, FuncType, VarType, FuncTypeCurried, ApplyTypeCurried, TypedValueEnv, TypedValue, KindEnv, TypeEnv, FuncNKind } from './types'
+import { Data, KindedDataEnv } from './data'
+import { ErrValue, FuncValue, FuncValueJ, FuncValueJ2 } from './values'
 import { Dice } from './execute'
-import { KindInferer } from './infer'
-
 
 export const builtinOps: TypedValueEnv = {
   '==': TypedValue(
@@ -63,23 +61,6 @@ export const builtinFuncs: TypedValueEnv = {
     FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2(Dice.roll),
   ),
-
-  neg: TypedValue(
-    FuncType(ConType('Num'), ConType('Num')),
-    FuncValueJ((n: number) => - n),
-  ),
-  max: TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
-    FuncValueJ2(Math.max),
-  ),
-  min: TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
-    FuncValueJ2(Math.min),
-  ),
-  abs: TypedValue(
-    FuncType(ConType('Num'), ConType('Num')),
-    FuncValueJ(Math.abs),
-  ),
 }
 
 const VarTypes = (...ids: string[]) => ids.map(VarType)
@@ -87,6 +68,12 @@ const VarTypes = (...ids: string[]) => ids.map(VarType)
 export const builtinData: KindedDataEnv = {
   'Num': {
     id: 'Num',
+    typeParams: VarTypes(),
+    cons: [],
+    kind: FuncNKind(1),
+  },
+  'Char': {
+    id: 'Char',
     typeParams: VarTypes(),
     cons: [],
     kind: FuncNKind(1),

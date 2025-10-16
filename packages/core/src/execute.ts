@@ -1,7 +1,7 @@
 import { entries, fromEntries, map, mapValues, mergeAll, pick, pipe, values } from 'remeda'
 import { Result } from 'fk-result'
 import { builtinVals } from './builtin'
-import { Value, NumValue, UnitValue, FuncValue, ErrValue } from './values'
+import { Value, NumValue, UnitValue, FuncValue, ErrValue, CharValue, ListValue } from './values'
 import { Data } from './data'
 import { BindingHostDes, ExprDes, ModDes, Node, NodeDes, PatternDes } from './nodes'
 import { CompiledMod } from './mods'
@@ -118,6 +118,10 @@ export const evaluate = (expr: ExprDes, env: ValueEnv): Value => {
         Value.assert(cond, 'con')
         return cond.id === 'True' ? evaluate(expr.yes, env) : evaluate(expr.no, env)
       }
+      case 'char':
+        return CharValue(expr.val)
+      case 'str':
+        return ListValue([...expr.val].map(CharValue))
       case 'var':
         return ValueEnv.resolve(expr.id, env, expr)
       case 'letDes': {
@@ -152,8 +156,6 @@ export const evaluate = (expr: ExprDes, env: ValueEnv): Value => {
         })
       case 'ann':
         return evaluate(expr.expr, env)
-      default:
-        throw new EvaluateError(`Unknown expr type: ${(expr as { type: string }).type} (unreachable)`, expr)
     }
   }
   const val = _eval()

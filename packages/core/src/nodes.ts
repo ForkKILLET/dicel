@@ -3,9 +3,9 @@ import { match } from 'ts-pattern'
 import { describeToShow, Dict, unsnoc } from './utils'
 import { Type } from './types'
 import { Data } from './data'
-import { isSymbolOrComma } from './lex'
+import { isSymbolOrComma, showStr } from './lex'
 import { Fixity } from './lex'
-import { entries, mapValues, pipe, values } from 'remeda'
+import { pipe, values } from 'remeda'
 import { BindingGroup } from './infer'
 
 export type DRange = { range: Range }
@@ -15,8 +15,19 @@ export type NumExpr<D = {}> = D & {
   type: 'num'
   val: number
 }
+
 export type UnitExpr<D = {}> = D & {
   type: 'unit'
+}
+
+export type CharExpr<D = {}> = D & {
+  type: 'char'
+  val: string
+}
+
+export type StrExpr<D = {}> = D & {
+  type: 'str'
+  val: string
 }
 
 export type TupleExprAuto<D = {}, S extends NodeStage = 'raw'> = D & {
@@ -446,6 +457,8 @@ export type ExprRawToRes<D = {}, S extends NodeStage = 'raw'> =
 export type ExprRawToDes<D = {}, S extends NodeStage = 'raw'> =
   | NumExpr<D>
   | UnitExpr<D>
+  | CharExpr<D>
+  | StrExpr<D>
   | VarExpr<D>
   | AnnExpr<D, S>
   | CondExpr<D, S>
@@ -668,6 +681,10 @@ export namespace Node {
           return String(node.val)
         case 'unit':
           return '()'
+        case 'char':
+          return showStr(node.val, '\'')
+        case 'str':
+          return showStr(node.val, '"')
         case 'var':
           return node.id
         case 'cond':
@@ -780,6 +797,8 @@ export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> =
   K extends 'unit' ? UnitExpr<D> :
   K extends 'num' ? NumExpr<D> :
   K extends 'var' ? VarExpr<D> :
+  K extends 'char' ? CharExpr<D> :
+  K extends 'str' ? StrExpr<D> :
   K extends 'pattern' ? PatternS<D, S> :
   K extends 'typeNode' ? TypeNode<D> :
   K extends 'let' ? LetExpr<D> :

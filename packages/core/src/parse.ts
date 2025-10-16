@@ -10,6 +10,8 @@ import {
   LambdaMultiExpr, Decl, FixityDecl, SectionLExpr, SectionRExpr, ParenExpr, ImportDecl, ExprDes, NodeRaw,
   ExprRaw, ExprRawType, Equation, EquationDef, withId,
   BindingHost,
+  CharExpr,
+  StrExpr,
 } from './nodes'
 import { isLower, isUpper, RESERVED_SYMBOLS, RESERVED_WORDS, SYMBOL_CHARS } from './lex'
 
@@ -122,6 +124,26 @@ export const pNum: P<NumExpr<DRange>> = pRanged(p.map(p.decimal, val => ({
   val,
 })))
 
+export const pCharInner = (quote: '\'' | '"'): P<string> => p.alt([
+  p.map(p.str('\\n'), () => '\n'),
+  p.map(p.str('\\r'), () => '\r'),
+  p.map(p.str('\\t'), () => '\t'),
+  p.map(p.str('\\' + quote), () => quote),
+  p.map(p.str('\\\\'), () => '\\'),
+  p.map(p.right(p.str('\\u'))(p.regex(/[0-9a-fA-F]{4}/)), hex => String.fromCodePoint(parseInt(hex, 16))),
+  p.noneOf('\n\\' + quote),
+])
+
+export const pChar: P<CharExpr<DRange>> = pRanged(p.map(
+  p.delimitedBy(p.char('\''), p.char('\''))(pCharInner('\'')),
+  val => ({ type: 'char', val }),
+))
+
+export const pStr: P<StrExpr<DRange>> = pRanged(p.map(
+  p.delimitedBy(p.char('"'), p.char('"'))(p.join(p.many(pCharInner('"')))),
+  val => ({ type: 'str', val }),
+))
+
 export const pIdent: P<string> = p.bind(
   p.regex(/[A-Za-z][A-Za-z\d']*|_[A-Za-z\d']+/),
   id => p.result(RESERVED_WORDS.includes(id)
@@ -194,6 +216,8 @@ export const pPrimaryExpr: P<ExprRaw<DRange>> = p.lazy(() => p.alt([
   pNum,
   pVar,
   pCon,
+  pChar,
+  pStr,
 ]))
 
 export const pVar: P<VarExpr<DRange>> = pRanged(p.map(
@@ -570,7 +594,7 @@ export const pTupleTypeInner: P<Type> = p.lazy(() => p.map(
   elems => ApplyTypeCurried(ConType(`${','.repeat(elems.length - 1)}`), ...elems)
 ))
 
-export const pUnitTypeInner: P<Type> = p.pure(ConType(''))
+export const pUnitTypeInner: P<Type> = p.pure(ConType('()'))
 
 export const pParenType: P<Type> = p.lazy(() => p.parens(p.alt([
   pTupleTypeInner,

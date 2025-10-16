@@ -5,6 +5,8 @@ import {
   VarExpr, LetResExpr, BindingRes, CaseBranchRes, CaseResExpr, LambdaMultiResExpr, LambdaCaseResExpr,
   BindingDefRes, SectionRExpr, EquationRes, EquationDefRes, EquationDefGroupRes, BindingHostRes,
   FixityDecl, Decl,
+  CharExpr,
+  StrExpr,
 } from './nodes'
 import { Dict, fromEntriesStrict, Set } from './utils'
 import { flatMap, groupByProp, keys, map, mapValues, pipe, prop, unique } from 'remeda'
@@ -18,6 +20,8 @@ export type ResolveMap = {
   unit: UnitExpr
   num: NumExpr
   var: VarExpr
+  char: CharExpr
+  str: StrExpr
   pattern: PatternRes
   typeNode: TypeNode
   decl: never
@@ -68,6 +72,8 @@ export const resolveImpls: ResolveImpls = {
   unit: (_env, expr) => expr,
   num: (_env, expr) => expr,
   var: (_env, expr) => expr,
+  char: (_env, expr) => expr,
+  str: (_env, expr) => expr,
   pattern: (_env, pattern) => pattern,
   typeNode: (_env, node) => node,
   dataDecl: (env) => env.panic({ type: 'Unreachable', nodeType: 'dataDecl' }),

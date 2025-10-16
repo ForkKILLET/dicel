@@ -4,12 +4,8 @@ import {
   NumExpr, UnitExpr, VarExpr, CondExpr, ApplyExpr, ExprDes, LambdaResExpr, TypeNode,
   AnnExpr, PatternDes, Node, SectionLExpr, SectionRExpr, NodeResType, ModRes,
   NodeRes, BindingRes, BindingDefRes, CaseBranchRes, CaseResExpr, PatternRes,
-  ModDes, EquationRes, EquationDefRes,
-  ApplyExprCurried, TupleExprAuto,
-  TuplePatternAuto, LambdaExprCurried,
-  BindingHostDes,
-  LetDesExpr,
-  BindingHostRes,
+  ModDes, EquationRes, EquationDefRes, ApplyExprCurried, TupleExprAuto, TuplePatternAuto,
+  LambdaExprCurried, BindingHostDes, LetDesExpr, CharExpr, StrExpr,
 } from './nodes'
 import { extractMaybeInfixOp } from './parse'
 import { Dict, Set, id } from './utils'
@@ -21,6 +17,8 @@ export type DesugarMap = {
   unit: UnitExpr
   num: NumExpr
   var: VarExpr
+  char: CharExpr
+  str: StrExpr
   letRes: LetDesExpr
   caseRes: CaseResExpr<{}, 'des'>
   cond: CondExpr<{}, 'des'>
@@ -81,6 +79,8 @@ export const desugarImpls: DesugarImpls = {
   num: (_env, expr) => expr,
   unit: (_env, expr) => expr,
   var: (_env, expr) => expr,
+  char: (_env, expr) => expr,
+  str: (_env, expr) => expr,
   letRes: (env, expr) => {
     const envLet = env.fork()
     const bindingHost = envLet.desugar(expr.bindingHost)

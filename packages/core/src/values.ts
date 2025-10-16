@@ -1,5 +1,6 @@
 import { match } from 'ts-pattern'
 import { describeToShow, Endo, Func, id } from './utils'
+import { showStr } from './lex'
 
 export type NumValue = { tag: 'num', val: number }
 export const NumValue = (val: number): NumValue => ({ tag: 'num', val })
@@ -9,6 +10,9 @@ export const BoolValue = (val: boolean): BoolValue => ({ tag: 'con', id: val ? '
 
 export type UnitValue = { tag: 'unit' }
 export const UnitValue = (): UnitValue => ({ tag: 'unit' })
+
+export type CharValue = { tag: 'char', val: string }
+export const CharValue = (val: string): CharValue => ({ tag: 'char', val })
 
 export type FuncValue = { tag: 'func', val: Endo<Value> }
 export const FuncValue = (func: Endo<Value>): FuncValue => ({ tag: 'func', val: func })
@@ -21,6 +25,11 @@ export const FuncValueN = (arity: number) => (func: (...args: Value[]) => Value)
     ? func()
     : FuncValue(arg => FuncValueN(arity - 1)((...args) => func(arg, ...args)))
 
+export const ListValue = (vals: Value[]): ConValue => vals.reduceRight<ConValue>(
+  (tail, head) => ConValue('#', [head, tail]),
+  ConValue('[]', []),
+)
+
 export type ConValue<K extends string = string> = { tag: 'con', id: K, args: Value[] }
 export const ConValue = (id: string, vals: Value[]): ConValue => ({ tag: 'con', id, args: vals })
 
@@ -29,6 +38,7 @@ export const ErrValue = (msg: string): ErrValue => ({ tag: 'err', msg })
 
 export type Value =
   | NumValue
+  | CharValue
   | BoolValue
   | UnitValue
   | FuncValue
@@ -53,6 +63,8 @@ export const FuncValueJ3 = <T1 extends MVJ, T2 extends MVJ, T3 extends MVJ, T4 e
 
 export type ValueDesc =
   | { tag: 'num', val: number }
+  | { tag: 'char', val: string }
+  | { tag: 'str', val: string }
   | { tag: 'unit' }
   | { tag: 'func', val: Endo<Value> }
   | { tag: 'list', vals: ValueDesc[] }
@@ -60,12 +72,12 @@ export type ValueDesc =
   | { tag: 'con', id: string, args: ValueDesc[] }
   | { tag: 'err', msg: string }
 
-export const uncurryListValue = (val: Value): Value[] => {
+export const extractListValue = (val: Value): Value[] => {
   Value.assert(val, 'con')
   if (val.id === '[]') return []
   if (val.id === '#') {
     const [head, tail] = val.args
-    return [head, ...uncurryListValue(tail)]
+    return [head, ...extractListValue(tail)]
   }
   throw new TypeError(`Expected constructor of List, got ${val.id}.`)
 }
@@ -104,16 +116,24 @@ export namespace Value {
   }
 
   export const describe = (value: Value): ValueDesc => match<Value, ValueDesc>(value)
-    .with({ tag: 'num' }, { tag: 'unit' }, { tag: 'err' }, { tag: 'func' }, value => value)
+    .with({ tag: 'num' }, { tag: 'unit' }, { tag: 'err' }, { tag: 'func' }, { tag: 'char' }, value => value)
     .with({ tag: 'con' }, value => match<ConValue, ValueDesc>(value)
       .when(({ id }) => id.includes(','), ({ args }) => ({
         tag: 'tuple',
         vals: args.map(describe)
       }))
-      .with({ id: '#' }, { id: '[]' }, value => ({
-        tag: 'list',
-        vals: uncurryListValue(value).map(describe),
-      }))
+      .with({ id: '#' }, { id: '[]' }, value => {
+        const elems = extractListValue(value)
+        return elems.every(elem => elem.tag === 'char')
+          ? {
+            tag: 'str',
+            val: elems.map(elem => elem.val).join(''),
+          }
+          : {
+            tag: 'list',
+            vals: extractListValue(value).map(describe),
+          }
+      })
       .otherwise(({ id, args }) => ({
         tag: 'con',
         id,
@@ -130,6 +150,8 @@ export namespace Value {
     describe,
     (val, show) => match(val)
       .with({ tag: 'num' }, ({ val }) => String(val))
+      .with({ tag: 'char' }, ({ val }) => showStr(val, '\''))
+      .with({ tag: 'str' }, ({ val }) => showStr(val, '"'))
       .with({ tag: 'unit' }, () => '()')
       .with({ tag: 'func' }, () => 'Func')
       .with({ tag: 'con' }, ({ id, args }) => match(id)

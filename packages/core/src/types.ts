@@ -1,9 +1,9 @@
 import { match } from 'ts-pattern'
-import { fromEntries, map, mapValues, pipe, range } from 'remeda'
+import { mapValues, pipe, range } from 'remeda'
 import { describeToShow, Dict, unsnoc, EqSet } from './utils'
-import { generalize, TypeVarState } from './infer'
+import { generalize } from './infer'
 import { Value } from './values'
-import { isSymbol, isSymbolOrComma } from './lex'
+import { isSymbolOrComma } from './lex'
 
 export type ConType = {
   sub: 'con'

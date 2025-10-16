@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { type DId, type DRange, isSymbol, isUpper, Node } from '@dicel/core'
+import { type DId, type DRange, isSymbol, isUpper, Node, showStr } from '@dicel/core'
 
 import { computed, useTemplateRef } from 'vue'
 import { Selection, useSelectable } from '../utils/selectable'
@@ -33,6 +33,12 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <span class="node-lit">{{ node.val }}</span>
     </span>
     <span v-else-if="node.type === 'unit'">()</span>
+    <span v-else-if="node.type === 'char'">
+      <span class="node-lit">{{ showStr(node.val, '\'') }}</span>
+    </span>
+    <span v-else-if="node.type === 'str'">
+      <span class="node-lit">{{ showStr(node.val, '"') }}</span>
+    </span>
     <span v-else-if="node.type === 'var'">
       <span :class="isSymbol(node.id) ? 'node-op' : isUpper(node.id[0]) ? 'node-con' : 'node-var'">{{ node.id }}</span>
     </span>

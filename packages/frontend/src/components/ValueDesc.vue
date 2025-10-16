@@ -1,6 +1,6 @@
 
 <script setup lang="ts">
-import { Value, type ValueDesc } from '@dicel/core'
+import { showStr, Value, type ValueDesc } from '@dicel/core'
 import { computed } from 'vue'
 
 const props = defineProps<{
@@ -15,7 +15,13 @@ const withParen = computed(() => Value.needsParen(props.value, props.parent))
   <div class="value">
     <template v-if="withParen">(</template>
     <span v-if="value.tag === 'num'">
-      <span class="value-num">{{ value.val }}</span>
+      <span class="value-lit">{{ value.val }}</span>
+    </span>
+    <span v-else-if="value.tag === 'char'">
+      <span class="value-lit">{{ showStr(value.val, '\'') }}</span>
+    </span>
+    <span v-else-if="value.tag === 'str'">
+      <span class="value-lit">{{ showStr(value.val, '"') }}</span>
     </span>
     <span v-else-if="value.tag === 'func'">
       <span class="value-special">Func</span>
@@ -51,7 +57,7 @@ const withParen = computed(() => Value.needsParen(props.value, props.parent))
   font-family: monospace;
 }
 
-.value-num {
+.value-lit {
   color: lightgreen;
 }
 
