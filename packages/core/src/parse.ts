@@ -1,7 +1,7 @@
 import { Err, Ok, Result } from 'fk-result'
 import { p, ParseErr, Parser, ParserState, Range } from 'parsecond'
 import { groupByProp, pipe } from 'remeda'
-import { ApplyType, ApplyTypeCurried, ConType, FuncType, Type, uncurryApplyType, VarType } from './types'
+import { ApplyType, ApplyTypeMulti, ConType, FuncType, Type, extractApplyType, VarType, TypeScheme } from './type'
 import {
   DRange, DId,
   NumExpr, TupleExprAuto, UnitExpr, VarExpr, ListExpr, ApplyExpr, InfixExpr, CondExpr, Binding, LetExpr,
@@ -12,8 +12,11 @@ import {
   BindingHost,
   CharExpr,
   StrExpr,
-} from './nodes'
+  ClassDef,
+  InstanceDef,
+} from './node'
 import { isLower, isUpper, RESERVED_SYMBOLS, RESERVED_WORDS, SYMBOL_CHARS } from './lex'
+import { generalize } from './infer'
 
 declare module 'parsecond' {
   export interface ParseErrMap {
@@ -249,8 +252,8 @@ export const pRollExpr: P<RollExpr<DRange>> = p.map(
 
 export const pRollExprL = p.alt([pRollExpr, pPrimaryExpr])
 
-export const uncurryApplyExpr = (expr: ApplyExpr<DRange, 'des'>): ExprDes<DRange>[] => expr.func.type === 'apply'
-  ? [...uncurryApplyExpr(expr.func), expr.arg]
+export const extractApplyExpr = (expr: ApplyExpr<DRange, 'des'>): ExprDes<DRange>[] => expr.func.type === 'apply'
+  ? [...extractApplyExpr(expr.func), expr.arg]
   : [expr.func, expr.arg]
 
 export const extractMaybeInfixOp = (expr: ExprDes) => {
@@ -367,7 +370,7 @@ export const pEquation: P<Equation<DRange>> = pRanged(p.lazy(() => p.map(
   })
 )))
 
-export const pBindingHost: P<BindingHost<DRange>> = p.lazy(() => p.map(
+export const pBindingHost = (abstract: boolean): P<BindingHost<DRange>> => p.lazy(() => p.map(
   p.ranged(pBlock(p.alt([pDecl, pFixityDecl, pBindingDef, pEquationDef]))),
   ({ val: defs, range }): BindingHost<DRange> => pipe(
     defs,
@@ -379,6 +382,7 @@ export const pBindingHost: P<BindingHost<DRange>> = p.lazy(() => p.map(
       bindingDef: bindingDefs = [],
     }): BindingHost<DRange> => ({
       type: 'bindingHost',
+      abstract,
       decls,
       fixityDecls,
       equationDefs,
@@ -388,10 +392,42 @@ export const pBindingHost: P<BindingHost<DRange>> = p.lazy(() => p.map(
   )
 ))
 
+export const pClassDef: P<ClassDef<DRange>> = pRanged(p.lazy(() => p.map(
+  p.seq([
+    p.str('class'),
+    pSpaced(pIdentBig),
+    pSpaced(pVarType),
+    pSpaced(p.str('where')),
+    pBindingHost(true),
+  ]),
+  ([, id, param, , bindingHost]) => ({
+    type: 'classDef',
+    id,
+    param,
+    bindingHost,
+  })
+)))
+
+export const pInstanceDef: P<InstanceDef<DRange>> = pRanged(p.lazy(() => p.map(
+  p.seq([
+    p.str('instance'),
+    pSpaced(pIdentBig),
+    pSpaced(pType),
+    pSpaced(p.str('where')),
+    pBindingHost(false),
+  ]),
+  ([, classId, arg, , bindingHost]) => ({
+    type: 'instanceDef',
+    classId,
+    arg,
+    bindingHost,
+  })
+)))
+
 export const pLetExpr: P<LetExpr<DRange>> = p.lazy(() => p.map(
   p.ranged(p.seq([
     p.str('let'),
-    pBindingHost,
+    pBindingHost(false),
     pSpacedAround(p.str('in')),
     pExpr,
   ])),
@@ -584,17 +620,19 @@ export const pConType: P<ConType> = p.map(
   ConType,
 )
 
-export const pListType: P<ApplyType> = p.lazy(() => p.map(
-  p.brackets(pSpacedAround(pType)),
-  elem => ApplyType(ConType('[]'), elem),
+export const pListType: P<Type> = p.lazy(() => p.map(
+  p.brackets(pSpacedAround(p.opt(pType))),
+  elem => elem === null
+    ? ConType('[]')
+    : ApplyType(ConType('[]'), elem)
 ))
 
 export const pTupleTypeInner: P<Type> = p.lazy(() => p.map(
   p.sep2(pType, pSpacedAround(p.char(','))),
-  elems => ApplyTypeCurried(ConType(`${','.repeat(elems.length - 1)}`), ...elems)
+  elems => ApplyTypeMulti(ConType(`${','.repeat(elems.length - 1)}`), ...elems)
 ))
 
-export const pUnitTypeInner: P<Type> = p.pure(ConType('()'))
+export const pUnitTypeInner: P<Type> = p.pure(ConType(''))
 
 export const pParenType: P<Type> = p.lazy(() => p.parens(p.alt([
   pTupleTypeInner,
@@ -614,7 +652,7 @@ export const pApplyType: P<Type> = p.lazy(() => p.map(
     p.alt([pConType, pVarType]),
     p.some(pSpaced(pPrimaryType)),
   ]),
-  ([func, args]) => ApplyTypeCurried(func, ...args)
+  ([func, args]) => ApplyTypeMulti(func, ...args)
 ))
 
 export const pFuncType: P<FuncType> = p.lazy(() => p.map(
@@ -633,9 +671,13 @@ export const pType: P<Type> = p.alt([
   pPrimaryType,
 ])
 
-export const pTypeNode = (pSomeType: P<Type>) => pRanged(p.map(pSomeType, val => ({
+export const pTypeNode = (pSomeType: P<Type>) => pRanged(p.map(pSomeType, type => ({
   type: 'typeNode',
-  val,
+  typeScheme: pipe(
+    type,
+    Type.rigidify,
+    generalize,
+  ),
 })))
 
 export const pTermExpr: P<ExprRaw<DRange>> = pRanged(p.alt([
@@ -713,7 +755,7 @@ export const pDataDecl: P<DataDecl<DRange>> = pRanged(p.lazy(() => p.bind(
     .all(
       cons.map(con => pipe(
         con,
-        uncurryApplyType,
+        extractApplyType,
         ([func, ...params]) => func.sub === 'con'
           ? Ok({
             id: func.id,
@@ -754,13 +796,25 @@ export const pImport: P<ImportDecl<DRange>> = pRanged(p.map(
 ))
 
 export const pMod: P<Mod<DRange>> = p.map(
-  p.ranged(pBlock(p.alt([pImport, pFixityDecl, pDecl, pBindingDef, pEquationDef, pDataDecl]))),
+  p.ranged(pBlock(p.alt([
+    pImport,
+    pDataDecl,
+    pClassDef,
+    pInstanceDef,
+
+    pDecl,
+    pFixityDecl,
+    pBindingDef,
+    pEquationDef,
+  ]))),
   ({ val: defs, range }) => pipe(
     defs,
     groupByProp('type'),
     ({
       import: imports = [],
       dataDecl: dataDecls = [],
+      classDef: classDefs = [],
+      instanceDef: instanceDefs = [],
       decl: decls = [],
       fixityDecl: fixityDecls = [],
       equationDef: equationDefs = [],
@@ -769,8 +823,11 @@ export const pMod: P<Mod<DRange>> = p.map(
       type: 'mod',
       imports,
       dataDecls,
+      classDefs,
+      instanceDefs,
       bindingHost: {
         type: 'bindingHost',
+        abstract: false,
         decls,
         fixityDecls,
         equationDefs,

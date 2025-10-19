@@ -152,7 +152,7 @@ export namespace Value {
       .with({ tag: 'num' }, ({ val }) => String(val))
       .with({ tag: 'char' }, ({ val }) => showStr(val, '\''))
       .with({ tag: 'str' }, ({ val }) => showStr(val, '"'))
-      .with({ tag: 'unit' }, () => '()')
+      .with({ tag: 'unit' }, () => '')
       .with({ tag: 'func' }, () => 'Func')
       .with({ tag: 'con' }, ({ id, args }) => match(id)
         .with(',', () => `(${args.map(show).join(', ')})`)

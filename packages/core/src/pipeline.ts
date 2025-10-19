@@ -2,13 +2,14 @@ import { Result } from 'fk-result'
 import { CheckMod, checkMod } from './check'
 import { Parse, parseMod } from './parse'
 import { EvaluateError, executeMod, ValueEnv } from './execute'
-import { KindEnv, TypeEnv } from './types'
-import { Value } from './values'
-import { ModRes, Mod, ModDes } from './nodes'
+import { KindEnv, TypeEnv } from './type'
+import { Value } from './value'
+import { ModRes, Mod, ModDes } from './node'
 import { Desugar, desugarMod } from './desugar'
 import { Last } from './utils'
-import { builtinMods } from './mods'
-import { Resolve, resolveMod } from './resolve'
+import { builtinMods } from './mod'
+import { Resolve, ResolveMod, resolveMod } from './resolve'
+import { TypeInferState } from './infer'
 
 export namespace Pipeline {
   export type PassSeq = ['parse', 'resolve', 'desugar', 'check', 'execute']
@@ -75,7 +76,7 @@ export namespace Pipeline {
     kindEnv: KindEnv
   }
   export type ResolveErr = ParseOutput & {
-    err: Resolve.Err
+    err: ResolveMod.Err
   }
 
   export type DesugarOutput = ResolveOutput & {
@@ -87,6 +88,7 @@ export namespace Pipeline {
 
   export type CheckOutput = DesugarOutput & {
     typeEnv: TypeEnv
+    inferState: TypeInferState
   }
   export type CheckErr = DesugarOutput & {
     err: CheckMod.Err
@@ -149,7 +151,7 @@ export namespace Pipeline {
         .mapErr(err => ({ ...state, parse: false, err })),
 
     resolve: (state) =>
-      resolveMod(state.mod, { compiledMods: builtinMods })
+      resolveMod(state.mod, { compiledMods: builtinMods, isMain: true })
         .map(({ modRes, kindEnv }) => ({ ...state, resolve: true, modRes, kindEnv }))
         .mapErr(err => ({ ...state, resolve: false, err })),
 
@@ -159,8 +161,8 @@ export namespace Pipeline {
         .mapErr(err => ({ ...state, desugar: false, err })),
 
     check: (state) =>
-      checkMod(state.modDes, state.kindEnv, { isMain: true, prettifyTypes: true, compiledMods: builtinMods })
-        .map(({ typeEnv }) => ({ ...state, check: true, typeEnv }))
+      checkMod(state.modDes, state.kindEnv, { compiledMods: builtinMods })
+        .map(({ typeEnv, state: inferState }) => ({ ...state, check: true, typeEnv, inferState }))
         .mapErr(err => ({ ...state, check: false, err })),
 
     execute: (state) =>

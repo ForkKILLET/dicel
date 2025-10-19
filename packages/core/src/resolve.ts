@@ -1,20 +1,18 @@
-import { Ok, Result } from 'fk-result'
+import { Err, Ok, Result } from 'fk-result'
 import {
   AnnExpr, ApplyMultiExpr, CondExpr, InfixExpr, ListExpr, ModRes, Mod, NodeRaw, NodeRawType, NumExpr,
   ParenExpr, PatternRaw, PatternRes, RollExpr, SectionLExpr, TupleExprAuto, TypeNode, UnitExpr,
   VarExpr, LetResExpr, BindingRes, CaseBranchRes, CaseResExpr, LambdaMultiResExpr, LambdaCaseResExpr,
   BindingDefRes, SectionRExpr, EquationRes, EquationDefRes, EquationDefGroupRes, BindingHostRes,
-  FixityDecl, Decl,
-  CharExpr,
-  StrExpr,
-} from './nodes'
+  FixityDecl, Decl, CharExpr, StrExpr, ClassDefRes, InstanceDefRes,
+} from './node'
 import { Dict, fromEntriesStrict, Set } from './utils'
-import { flatMap, groupByProp, keys, map, mapValues, pipe, prop, unique } from 'remeda'
+import { flatMap, groupByProp, keys, map, mapValues, pipe, prop, unique, values } from 'remeda'
 import { match } from 'ts-pattern'
-import { InferKind } from './infer'
+import { KindInfer } from './infer'
 import { checkKindMod } from './check'
-import { CompiledMod } from './mods'
-import { KindEnv } from './types'
+import { CompiledMod } from './mod'
+import { KindEnv } from './type'
 
 export type ResolveMap = {
   unit: UnitExpr
@@ -29,6 +27,8 @@ export type ResolveMap = {
   dataDecl: never
   import: never
   mod: ModRes
+  classDef: ClassDefRes
+  instanceDef: InstanceDefRes
   bindingHost: BindingHostRes
   case: CaseResExpr
   ann: AnnExpr<{}, 'res'>
@@ -95,6 +95,16 @@ export const resolveImpls: ResolveImpls = {
     yes: env.resolve(expr.yes),
     no: env.resolve(expr.no),
   }),
+  classDef: (env, def) => ({
+    ...def,
+    type: 'classDefRes',
+    bindingHost: env.resolve(def.bindingHost),
+  }),
+  instanceDef: (env, def) => ({
+    ...def,
+    type: 'instanceDefRes',
+    bindingHost: env.resolve(def.bindingHost),
+  }),
   bindingHost: (env, host) => {
     const declDict: Dict<Decl> = pipe(
       host.decls,
@@ -142,12 +152,16 @@ export const resolveImpls: ResolveImpls = {
     const equationDefIdSet = Set.of(keys(equationDefGroupDict))
     const idSet = Set.union([bindingDefIdSet, equationDefIdSet])
 
-    for (const id in declDict) {
-      if (! idSet.has(id)) env.panic({ type: 'MissingDef', id })
+    const { abstract } = host
+    if (! abstract) {
+      for (const id in declDict) {
+        if (! idSet.has(id)) env.panic({ type: 'MissingDef', id })
+      }
     }
 
     return {
       type: 'bindingHostRes',
+      abstract,
       declDict,
       fixityDict,
       bindingDefs,
@@ -293,7 +307,26 @@ export const resolveImpls: ResolveImpls = {
     )
 
     const bindingHost = env.resolve(mod.bindingHost)
-    const idSet = Set.union([dataConIdSet, bindingHost.idSet])
+
+    const classDict = pipe(
+      mod.classDefs,
+      map(def => [def.id, env.resolve(def)] as const),
+      Dict.strictOf,
+      env.unwrapDuplicate('classDef'),
+    )
+    const instanceDefs = mod.instanceDefs.map(env.resolve)
+
+    const classDeclIdSet = pipe(
+      values(classDict),
+      map(def => Set.of(keys(def.bindingHost.declDict))),
+      Set.disjointUnion,
+      env.unwrapDuplicate('decl'),
+    )
+
+    const idSet = pipe(
+      Set.disjointUnion([dataConIdSet, bindingHost.idSet, classDeclIdSet]),
+      env.unwrapDuplicate('decl'),
+    )
 
     const modRes: ModRes = {
       ...mod,
@@ -302,6 +335,8 @@ export const resolveImpls: ResolveImpls = {
       importModIdSet,
       dataConIdSet,
       dataDict,
+      classDefDict: classDict,
+      instanceDefs,
       idSet,
       bindingHost,
     }
@@ -326,13 +361,13 @@ export namespace Resolve {
   export type Ok<K extends NodeRawType> = ResolveMap[K]
 
   export type Err =
-    | { type: 'Duplicate', sub: 'decl' | 'fixityDecl' | 'dataDecl' | 'import', id: string }
+    | { type: 'Duplicate', sub: 'decl' | 'fixityDecl' | 'dataDecl' | 'import' | 'classDef', id: string }
     | { type: 'ConflictDef', id: string }
     | { type: 'DiffEquationArity', id: string }
     | { type: 'MissingDef', id: string }
     | { type: 'UnknownMod', modId: string }
     | { type: 'UnknownImport', modId: string, id: string }
-    | InferKind.Err
+    | KindInfer.Err
     | { type: 'Unreachable', nodeType: NodeRawType }
 
   export type Res<K extends NodeRawType = NodeRawType> = Result<Ok<K>, Err>
@@ -359,21 +394,22 @@ export namespace ResolveMod {
     modRes: ResolveMap['mod']
     kindEnv: KindEnv
   }
-  export type Err = Resolve.Err
+  export type Err =
+    | Resolve.Err
+    | { type: 'NoMain' }
   export type Res = Result<Ok, Err>
 
   export type Options = {
-    compiledMods?: Dict<CompiledMod>
+    isMain: boolean
+    compiledMods: Dict<CompiledMod>
   }
 }
 
-export const resolveMod = (mod: Mod, { compiledMods = {} }: ResolveMod.Options = {}): ResolveMod.Res => {
+export const resolveMod = (mod: Mod, { isMain, compiledMods = {} }: Partial<ResolveMod.Options> = {}): ResolveMod.Res => {
   return resolve({ compiledMods }, mod)
-    .bind(modRes =>
-      checkKindMod(modRes, { compiledMods })
-        .map(({ kindEnv }) => ({
-          modRes,
-          kindEnv,
-        }))
-    )
+    .bind((modRes): ResolveMod.Res => {
+      if (isMain && ! modRes.bindingHost.idSet.has('main')) return Err({ type: 'NoMain' })
+      return checkKindMod(modRes, { compiledMods })
+        .map(({ kindEnv }) => ({ modRes, kindEnv }))
+    })
 }

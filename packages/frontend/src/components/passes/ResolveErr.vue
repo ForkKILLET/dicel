@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="resolve err section">
+  <div class="err section">
     <div class="badge">resolve</div>
     Resolve Error:
     <template v-if="err.type === 'Duplicate'">
@@ -29,6 +29,9 @@ defineProps<{
         err.err.type === 'DiffShape' ? 'they are of different shapes' :
         'of unknown reasons'
       }}.
+    </template>
+    <template v-else-if="err.type === 'NoMain'">
+      Undefined entry variable 'main'.
     </template>
     <template v-else-if="err.type === 'UndefinedCon'">
       Undefined type constructor '{{ err.id }}'.

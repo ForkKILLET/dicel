@@ -7,6 +7,7 @@ import TypeV from './TypeV.vue'
 import PatternV from './PatternV.vue'
 
 import { values } from 'remeda'
+import TypeScheme from './TypeScheme.vue'
 
 const props = withDefaults(defineProps<{
   node: Node<DRange & DId> | Node
@@ -154,7 +155,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
       <NodeV :node="node.ann" :selection="selection" :parent="node" />
     </span>
     <span v-else-if="node.type === 'typeNode'">
-      <TypeV :type="node.val" />
+      <TypeScheme :typeScheme="node.typeScheme" />
     </span>
     <span v-else-if="node.type === 'bindingDef' || node.type === 'bindingDefRes'">
       <NodeV :node="node.binding" :selection="selection" :parent="node" />
@@ -199,7 +200,7 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         </template>)
       </template>
     </span>
-    <span v-else-if="node.type === 'bindingHost' || node.type === 'bindingHostRes' || node.type === 'bindingHostDes'">
+    <span v-else-if="node.type === 'bindingHost' || node.type === 'bindingHostRes' || node.type === 'bindingHostDes'" class="node-host">
       <div v-for="decl of node.type === 'bindingHost' ? node.decls : values(node.declDict)">
         <NodeV :node="decl" :selection="selection" :parent="node" />
       </div>
@@ -220,13 +221,35 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
         <NodeV :node="equationDef" :selection="selection" :parent="node" />
       </div>
     </span>
-    <span v-else-if="node.type === 'mod' || node.type === 'modRes' || node.type === 'modDes'">
+    <span v-else-if="node.type === 'classDef' || node.type === 'classDefRes' || node.type === 'classDefDes'">
+      <span class="node-kw">class</span>
+      <span class="node-con node-spaced-right">{{ node.id }}</span>
+      <TypeV :type="node.param" class="node-spaced-right" />
+      <span class="node-kw node-spaced-right">where</span>
+      <NodeV :node="node.bindingHost" :selection="selection" :parent="node" class="node-block" />
+    </span>
+    <span v-else-if="node.type === 'instanceDef' || node.type === 'instanceDefRes' || node.type === 'instanceDefDes'">
+      <span class="node-kw">instance</span>
+      <span class="node-con node-spaced-right">{{ node.classId }}</span>
+      <TypeV :type="node.arg" class="node-spaced-right" />
+      <span class="node-kw node-spaced-right">where</span>
+      <NodeV :node="node.bindingHost" :selection="selection" :parent="node" class="node-block" />
+    </span>
+    <span v-else-if="node.type === 'mod' || node.type === 'modRes' || node.type === 'modDes'" class="node-host">
       <div v-for="import_ of node.imports">
         <NodeV :node="import_" :selection="selection" :parent="node" />
       </div>
 
       <div v-for="dataDecl of node.dataDecls">
         <NodeV :node="dataDecl" :selection="selection" :parent="node" />
+      </div>
+
+      <div v-for="classDef of node.type === 'mod' ? node.classDefs : values(node.classDefDict)">
+        <NodeV :node="classDef" :selection="selection" :parent="node" />
+      </div>
+
+      <div v-for="instanceDef of node.instanceDefs">
+        <NodeV :node="instanceDef" :selection="selection" :parent="node" />
       </div>
 
       <NodeV :node="node.bindingHost" :selection="selection" :parent="node" />
@@ -250,6 +273,10 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
   vertical-align: top;
   font-family: monospace;
   color: lightgrey;
+}
+
+.node-host > * + * {
+  margin-top: 1ch;
 }
 
 .node-block {

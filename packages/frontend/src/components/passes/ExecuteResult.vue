@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { zip, capitalize } from 'remeda'
 import {
-  builtinData, Type, TypeSubst, uncurryApplyType, Value, EvaluateError,
+  builtinData, Type, TypeSubst, extractApplyType, Value, EvaluateError,
   type Pipeline, type Runner, type RunnerCache
 } from '@dicel/core'
 import type { Cmp } from '../../utils'
@@ -28,7 +28,7 @@ const sortDir = ref(1)
 const buildValueCmp = (type: Type): Cmp<Value> => {
   if (type.sub !== 'con' && type.sub !== 'apply') return () => 0
 
-  const [con, ...args] = uncurryApplyType(type)
+  const [con, ...args] = extractApplyType(type)
   Type.assert(con, ['con'])
 
   if (con.id === 'Num') return (a, b) => {
@@ -141,12 +141,12 @@ const disLabelWidth = computed(() => Math.max(...disBars.value.map(bar => bar.wi
       <button @click="runner.runToMultiple(1000)">Re-run to 1000x</button>
     </div>
 
-    <div v-if="result.execute" class="execute ok section">
+    <div v-if="result.execute" class="ok section">
       <div class="badge">execute</div>
       Value:
       <ValueV :value="result.mainValue" />
     </div>
-    <div v-else class="execute err section">
+    <div v-else class="err section">
       <div class="badge">execute</div>
       <template v-if="(result.err instanceof EvaluateError)">
         <pre>{{ result.err }}</pre>
@@ -157,7 +157,7 @@ const disLabelWidth = computed(() => Math.max(...disBars.value.map(bar => bar.wi
       </template>
     </div>
 
-    <div class="dis ok section">
+    <div class="ok section">
       <div>
         Distribution (<span class="dis-total">{{ runnerCache.totalRuns }}x</span>):
         <button @click="disGraphDir = disGraphDirNext">{{ capitalize(disGraphDir) }} view</button>

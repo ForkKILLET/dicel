@@ -7,7 +7,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="parse err section">
+  <div class="err section">
     <div class="badge">parse</div>
     Parse Error:
     <template v-if="err === null">

@@ -1,10 +1,10 @@
 import { entries, fromEntries, map, mapValues, mergeAll, pick, pipe, values } from 'remeda'
 import { Result } from 'fk-result'
 import { builtinVals } from './builtin'
-import { Value, NumValue, UnitValue, FuncValue, ErrValue, CharValue, ListValue } from './values'
+import { Value, NumValue, UnitValue, FuncValue, ErrValue, CharValue, ListValue } from './value'
 import { Data } from './data'
-import { BindingHostDes, ExprDes, ModDes, Node, NodeDes, PatternDes } from './nodes'
-import { CompiledMod } from './mods'
+import { BindingHostDes, ExprDes, ModDes, Node, NodeDes, PatternDes } from './node'
+import { CompiledMod } from './mod'
 
 export type Ref = { value: Value }
 export type ValueEnv = Record<string, Ref>

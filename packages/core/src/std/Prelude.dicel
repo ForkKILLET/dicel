@@ -16,6 +16,39 @@ not False = True
 
 -- Number
 
+(+) :: Num -> Num -> Num
+(+) = addNum
+
+(-) :: Num -> Num -> Num
+(-) = subNum
+
+(*) :: Num -> Num -> Num
+(*) = mulNum
+
+(/) :: Num -> Num -> Num
+(/) = divNum
+
+(%) :: Num -> Num -> Num
+(%) = modNum
+
+(==) :: Num -> Num -> Bool
+(==) = eqNum
+
+(/=) :: Num -> Num -> Bool
+(/=) x y = not (x == y)
+
+(<) :: Num -> Num -> Bool
+(<) = ltNum
+
+(>) :: Num -> Num -> Bool
+(>) = gtNum
+
+(<=) :: Num -> Num -> Bool
+(<=) = leNum
+
+(>=) :: Num -> Num -> Bool
+(>=) = geNum
+
 inf :: Num
 inf = 1 / 0
 

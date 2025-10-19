@@ -1,52 +1,48 @@
-import { entries, map, mapValues, mergeAll, pipe } from 'remeda'
-import { ConType, FuncType, VarType, FuncTypeCurried, ApplyTypeCurried, TypedValueEnv, TypedValue, KindEnv, TypeEnv, FuncNKind } from './types'
+import { entries, map, mapValues, mergeAll, pipe, values } from 'remeda'
+import { ConType, VarType, FuncTypeMulti, ApplyTypeMulti, TypedValueEnv, TypedValue, KindEnv, TypeEnv, FuncNKind } from './type'
 import { Data, KindedDataEnv } from './data'
-import { ErrValue, FuncValue, FuncValueJ, FuncValueJ2 } from './values'
+import { ErrValue, FuncValueJ2 } from './value'
 import { Dice } from './execute'
 
 export const builtinOps: TypedValueEnv = {
-  '==': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
+  'eqNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs === rhs),
   ),
-  '!=': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
-    FuncValueJ2((lhs: number, rhs: number) => lhs !== rhs),
-  ),
-  '<': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
+  'ltNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs < rhs),
   ),
-  '<=': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
+  'leNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs <= rhs),
   ),
-  '>': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
+  'gtNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs > rhs),
   ),
-  '>=': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Bool')),
+  'geNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Bool')),
     FuncValueJ2((lhs: number, rhs: number) => lhs >= rhs),
   ),
-  '+': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
+  'addNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs + rhs),
   ),
-  '-': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
+  'subNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs - rhs),
   ),
-  '*': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
+  'mulNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs * rhs),
   ),
-  '/': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
+  'divNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs / rhs),
   ),
-  '%': TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
+  'modNum': TypedValue(
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2((lhs: number, rhs: number) => lhs % rhs),
   ),
 }
@@ -58,7 +54,7 @@ export const builtinFuncs: TypedValueEnv = {
   ),
 
   roll: TypedValue(
-    FuncTypeCurried(ConType('Num'), ConType('Num'), ConType('Num')),
+    FuncTypeMulti(ConType('Num'), ConType('Num'), ConType('Num')),
     FuncValueJ2(Dice.roll),
   ),
 }
@@ -78,11 +74,11 @@ export const builtinData: KindedDataEnv = {
     cons: [],
     kind: FuncNKind(1),
   },
-  '()': {
-    id: '()',
+  '': {
+    id: '',
     typeParams: VarTypes(),
     cons: [
-      { id: '()', params: [] }
+      { id: '', params: [] }
     ],
     kind: FuncNKind(1),
   },
@@ -91,7 +87,7 @@ export const builtinData: KindedDataEnv = {
     typeParams: VarTypes('a'),
     cons: [
       { id: '[]', params: [] },
-      { id: '#', params: [VarType('a'), ApplyTypeCurried(ConType('[]'), VarType('a'))] },
+      { id: '#', params: [VarType('a'), ApplyTypeMulti(ConType('[]'), VarType('a'))] },
     ],
     kind: FuncNKind(2),
   },
@@ -125,8 +121,8 @@ export const builtinVals: TypedValueEnv = {
   ...builtinOps,
   ...builtinFuncs,
   ...pipe(
-    entries(builtinData),
-    map(([id, data]) => Data.getTypedValueEnv(id, data)),
+    values(builtinData),
+    map(Data.getTypedValueEnv),
     mergeAll,
   ),
 }

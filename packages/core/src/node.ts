@@ -1,7 +1,7 @@
 import { Range } from 'parsecond'
 import { match } from 'ts-pattern'
-import { describeToShow, Dict, unsnoc } from './utils'
-import { Type } from './types'
+import { describeToShow, Dict, indent, unsnoc } from './utils'
+import { Type, TypeScheme, VarType } from './type'
 import { Data } from './data'
 import { isSymbolOrComma, showStr } from './lex'
 import { Fixity } from './lex'
@@ -52,12 +52,12 @@ export type ApplyExpr<D = {}, S extends NodeStage = 'raw'> = D & {
   arg: ExprS<D, S>
 }
 
-export const ApplyExprCurried = (func: ExprDes, args: ExprDes[]): ApplyExpr<{}, 'des'> => (args.length
+export const ApplyExprMulti = (func: ExprDes, args: ExprDes[]): ApplyExpr<{}, 'des'> => (args.length
   ? pipe(
     unsnoc(args),
     ([args, arg]) => ({
       type: 'apply',
-      func: ApplyExprCurried(func, args),
+      func: ApplyExprMulti(func, args),
       arg,
     })
   )
@@ -68,7 +68,7 @@ export const TupleExprAuto = (args: ExprDes[]): ExprDes => {
   const { length } = args
   if (length === 0) return { type: 'unit' }
   if (length === 1) return args[0]
-  return ApplyExprCurried(
+  return ApplyExprMulti(
     { type: 'var', id: ','.repeat(length - 1) },
     args,
   )
@@ -260,7 +260,7 @@ export type LambdaResExpr<D = {}, S extends NodeStage = 'des'> = D & {
   idSet: Set<string>
 }
 
-export const LambdaExprCurried = (
+export const LambdaExprMulti = (
   [param, ...params]: PatternS<{}, 'des'>[],
   [idSet, ...idSets]: Set<string>[],
   body: ExprDes,
@@ -269,7 +269,7 @@ export const LambdaExprCurried = (
   param,
   body: ! params.length
     ? body
-    : LambdaExprCurried(params, idSets, body),
+    : LambdaExprMulti(params, idSets, body),
   idSet,
 })
 
@@ -285,7 +285,7 @@ export type LambdaCaseResExpr<D = {}, S extends NodeStage = 'res'> = D & {
 
 export type TypeNode<D = {}> = D & {
   type: 'typeNode'
-  val: Type
+  typeScheme: TypeScheme
 }
 
 export type AnnExpr<D = {}, S extends NodeStage = 'raw'> = D & {
@@ -352,6 +352,7 @@ export type Import = {
 
 export type BindingHost<D = {}, S extends NodeStage = 'raw'> = D & {
   type: 'bindingHost'
+  abstract: boolean
 
   decls: Decl<D>[]
   fixityDecls: FixityDecl<D>[]
@@ -362,6 +363,7 @@ export type BindingHost<D = {}, S extends NodeStage = 'raw'> = D & {
 
 export type BindingHostRes<D = {}, S extends NodeStage = 'res'> = D & {
   type: 'bindingHostRes'
+  abstract: boolean
 
   declDict: Dict<Decl>
   fixityDict: Dict<FixityDecl>
@@ -378,6 +380,7 @@ export type BindingHostRes<D = {}, S extends NodeStage = 'res'> = D & {
 
 export type BindingHostDes<D = {}, S extends NodeStage = 'des'> = D & {
   type: 'bindingHostDes'
+  abstract: boolean
 
   declDict: Dict<Decl>
   fixityDict: Dict<FixityDecl>
@@ -392,6 +395,8 @@ export type Mod<D = {}, S extends NodeStage = 'raw'> = D & {
 
   imports: ImportDecl<D>[]
   dataDecls: DataDecl<D>[]
+  classDefs: ClassDef<D, S>[]
+  instanceDefs: InstanceDef<D, S>[]
 
   bindingHost: BindingHost<D, S>
 }
@@ -402,6 +407,8 @@ export type ModRes<D = {}, S extends NodeStage = 'res'> = D & {
   imports: ImportDecl<D>[]
   dataDecls: DataDecl<D>[]
   dataDict: Dict<Data>
+  classDefDict: Dict<ClassDefRes<D, S>>
+  instanceDefs: InstanceDefRes<D, S>[]
 
   importDict: Dict<Import>
   importModIdSet: Set<string>
@@ -418,6 +425,8 @@ export type ModDes<D = {}, S extends NodeStage = 'des'> = D & {
   imports: ImportDecl<D>[]
   dataDecls: DataDecl<D>[]
   dataDict: Dict<Data>
+  classDefDict: Dict<ClassDefDes<D, S>>
+  instanceDefs: InstanceDefDes<D, S>[]
 
   importDict: Dict<Import>
   importModIdSet: Set<string>
@@ -428,14 +437,46 @@ export type ModDes<D = {}, S extends NodeStage = 'des'> = D & {
   idSet: Set<string>
 }
 
-export type Class = {
-  typeParam: string[]
-  decls: Decl[]
-}
-export type ClassDecl = {
-  type: 'classDecl'
+export type ClassDef<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'classDef'
   id: string
-  class: Class
+  param: VarType
+  bindingHost: BindingHost<D, S>
+}
+
+export type ClassDefRes<D = {}, S extends NodeStage = 'res'> = D & {
+  type: 'classDefRes'
+  id: string
+  param: VarType
+  bindingHost: BindingHostRes<D, S>
+}
+
+export type ClassDefDes<D = {}, S extends NodeStage = 'des'> = D & {
+  type: 'classDefDes'
+  id: string
+  param: VarType
+  bindingHost: BindingHostDes<D, S>
+}
+
+export type InstanceDef<D = {}, S extends NodeStage = 'raw'> = D & {
+  type: 'instanceDef'
+  classId: string
+  arg: Type
+  bindingHost: BindingHost<D, S>
+}
+
+export type InstanceDefRes<D = {}, S extends NodeStage = 'res'> = D & {
+  type: 'instanceDefRes'
+  classId: string
+  arg: Type
+  bindingHost: BindingHostRes<D, S>
+}
+
+export type InstanceDefDes<D = {}, S extends NodeStage = 'des'> = D & {
+  type: 'instanceDefDes'
+  classId: string
+  arg: Type
+  bindingHost: BindingHostDes<D, S>
 }
 
 export type ExprRawToRaw<D = {}, S extends NodeStage = 'raw'> =
@@ -567,6 +608,8 @@ export type NodeRawToRaw<D = {}, S extends NodeStage = 'raw'> =
   | CaseBranch<D, S>
   | Binding<D, S>
   | Equation<D, S>
+  | ClassDef<D, S>
+  | InstanceDef<D, S>
 
 export type NodeRawToRes<D = {}, S extends NodeStage = 'raw'> =
   | ExprRawToRes<D, S>
@@ -586,6 +629,8 @@ export type NodeResToRes<D = {}, S extends NodeStage = 'res'> =
   | ExprResToRes<D, S>
   | PatternResToRes<D, S>
   | ModRes<D, S>
+  | ClassDefRes<D, S>
+  | InstanceDefRes<D, S>
   | BindingHostRes<D, S>
   | EquationRes<D, S>
   | EquationDefRes<D, S>
@@ -608,6 +653,8 @@ export type NodeDesToDes<D = {}, S extends NodeStage = 'des'> =
   | ExprDesToDes<D, S>
   | PatternDesToDes<D, S>
   | ModDes<D, S>
+  | ClassDefDes<D, S>
+  | InstanceDefDes<D, S>
   | BindingHostDes<D, S>
 
 export type NodeDes<D = {}> =
@@ -641,8 +688,8 @@ export type NodeDesType = NodeDes['type']
 export type PatternSub = Pattern['sub']
 
 export namespace Pattern {
-  export const needsParen = (self: Pattern, parent: Pattern | null): boolean => parent !== null && (
-    parent.sub === 'con' && self.sub === 'con' && self.args.length > 0
+  export const needsParen = (self: Pattern, parent: Pattern | null): boolean => (
+    self.sub === 'con' && self.args.length > 0
   )
 
   export const show = describeToShow<Pattern, Pattern>(
@@ -650,7 +697,7 @@ export namespace Pattern {
     (pattern: Pattern, show): string => match(pattern)
       .with({ sub: 'wildcard' }, () => '_')
       .with({ sub: 'num' }, ({ val }) => String(val))
-      .with({ sub: 'unit' }, () => '()')
+      .with({ sub: 'unit' }, () => '')
       .with({ sub: 'var' }, ({ var: { id } }) => id)
       .with({ sub: 'con' }, ({ con: { id }, args }) => `${id} ${args.map(show).join(' ')}`)
       .with({ sub: 'tuple' }, ({ elems }) => `(${elems.map(show).join(', ')})`)
@@ -663,7 +710,7 @@ export namespace Pattern {
 export namespace Node {
   export const is = <const Ts extends NodeType[]>(node: Node, types: Ts): node is Node & { type: Ts[number] } => types.includes(node.type)
 
-  export const needsParen = (self: Node, parent: Node | null): boolean =>
+  export const needsParen = (self: Node, parent: Node | null): boolean => (
     self.type === 'var' && (
       isSymbolOrComma(self.id) && (! parent || ! Array.of<NodeType>('infix', 'sectionL', 'sectionR').includes(parent?.type))
     ) ||
@@ -672,6 +719,7 @@ export namespace Node {
       self.type === 'lambdaRes' ||
       self.type === 'apply' && self === parent.arg
     )
+  )
 
   export const show = describeToShow<Node, Node>(
     expr => expr,
@@ -680,7 +728,7 @@ export namespace Node {
         case 'num':
           return String(node.val)
         case 'unit':
-          return '()'
+          return ''
         case 'char':
           return showStr(node.val, '\'')
         case 'str':
@@ -729,7 +777,7 @@ export namespace Node {
         case 'ann':
           return `(${show(node.expr)} :: ${show(node.ann)})`
         case 'typeNode':
-          return Type.show(node.val)
+          return TypeScheme.show(node.typeScheme)
         case 'bindingDef':
         case 'bindingDefRes':
           return show(node.binding)
@@ -758,6 +806,14 @@ export namespace Node {
             ...node.dataDecls,
             node.bindingHost,
           ].map(show).join('\n\n')
+        case 'classDef':
+        case 'classDefRes':
+        case 'classDefDes':
+          return `class ${node.id} ${Type.show(node.param)} where\n${indent(2)(show(node.bindingHost))}`
+        case 'instanceDef':
+        case 'instanceDefRes':
+        case 'instanceDefDes':
+          return `instance ${node.classId} ${Type.show(node.arg)} where\n${indent(2)(show(node.bindingHost))}`
         case 'bindingHost':
           return [
             ...node.decls,
@@ -832,6 +888,12 @@ export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> =
   K extends 'import' ? ImportDecl<D> :
   K extends 'mod' ? Mod<D, S> :
   K extends 'modRes' ? ModRes<D, S> :
+  K extends 'classDef' ? ClassDef<D, S> :
+  K extends 'classDefRes' ? ClassDefRes<D, S> :
+  K extends 'classDefDes' ? ClassDefDes<D, S> :
+  K extends 'instanceDef' ? InstanceDef<D, S> :
+  K extends 'instanceDefRes' ? InstanceDefRes<D, S> :
+  K extends 'instanceDefDes' ? InstanceDefDes<D, S> :
   K extends 'bindingHost' ? BindingHost<D, S> :
   K extends 'bindingHostRes' ? BindingHostRes<D, S> :
   K extends 'bindingHostDes' ? BindingHostDes<D, S> :
@@ -843,7 +905,7 @@ export type NodeH<K extends NodeType, D = {}, S extends NodeStage = 'raw'> =
   K extends 'list' ? ListExpr<D, S> :
   K extends 'tuple' ? TupleExprAuto<D, S> :
   K extends 'paren' ? ParenExpr<D, S> :
-  never;
+  never
 
 export const withId = <K extends NodeRawType, D>(node: NodeH<K, D>): NodeH<K, D & DId> => {
   let id = 0
@@ -956,10 +1018,16 @@ export const withId = <K extends NodeRawType, D>(node: NodeH<K, D>): NodeH<K, D 
         break
       case 'dataDecl':
         break
+      case 'classDef':
+      case 'instanceDef':
+        newNode.bindingHost = traverse<'bindingHost'>(newNode.bindingHost)
+        break
       case 'mod':
         newNode.imports = newNode.imports.map(traverse<'import'>)
         newNode.bindingHost = traverse<'bindingHost'>(newNode.bindingHost)
         newNode.dataDecls = newNode.dataDecls.map(traverse<'dataDecl'>)
+        newNode.classDefs = newNode.classDefs.map(traverse<'classDef'>)
+        newNode.instanceDefs = newNode.instanceDefs.map(traverse<'instanceDef'>)
         break
       case 'bindingHost':
         newNode.decls = newNode.decls.map(traverse<'decl'>)

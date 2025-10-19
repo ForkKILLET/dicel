@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="desugar err section">
+  <div class="err section">
     <div class="badge">desugar</div>
     Desugar Error:
     <template v-if="err.type === 'fixity'">

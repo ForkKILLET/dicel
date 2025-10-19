@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Pipeline } from '@dicel/core'
 import TypeSourced from '../TypeSourced.vue'
+import ConstrV from '../ConstrV.vue'
 
 defineProps<{
   err: Pipeline.CheckErr['err']
@@ -8,7 +9,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="check err section">
+  <div class="err section">
     <div class="badge">check</div>
     Check Error:
     <div>
@@ -31,9 +32,6 @@ defineProps<{
       <template v-else-if="err.type === 'PatternErr'">
         Illegal pattern {{ err.err.type }}
       </template>
-      <template v-else-if="err.type === 'NoMain'">
-        Undefined variable 'main'.
-      </template>
       <template v-else-if="err.type === 'UnknownImport'">
         Module '{{ err.modId }}' has no exported symbol '{{ err.id }}'.
       </template>
@@ -42,6 +40,19 @@ defineProps<{
       </template>
       <template v-else-if="err.type === 'DuplicateDecls'">
         Duplicate declarations for '{{ err.id }}'.
+      </template>
+      <template v-else-if="err.type === 'ConstrsSolveErr'">
+        <template v-if="err.err.type === 'NoInstance'">
+          No instance found for constraint <ConstrV :constr="err.err.constr" />
+        </template>
+        <template v-else-if="err.err.type === 'AmbiguousInstance'">
+          Ambiguous instances found for constraint <ConstrV :constr="err.err.constr" />:
+          <div class="check-err-block">
+            <div v-for="inst of err.err.instances">
+              <ConstrV :constr="inst" />
+            </div>
+          </div>
+        </template>
       </template>
     </div>
   </div>

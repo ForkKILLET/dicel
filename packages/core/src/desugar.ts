@@ -4,14 +4,16 @@ import {
   NumExpr, UnitExpr, VarExpr, CondExpr, ApplyExpr, ExprDes, LambdaResExpr, TypeNode,
   AnnExpr, PatternDes, Node, SectionLExpr, SectionRExpr, NodeResType, ModRes,
   NodeRes, BindingRes, BindingDefRes, CaseBranchRes, CaseResExpr, PatternRes,
-  ModDes, EquationRes, EquationDefRes, ApplyExprCurried, TupleExprAuto, TuplePatternAuto,
-  LambdaExprCurried, BindingHostDes, LetDesExpr, CharExpr, StrExpr,
-} from './nodes'
+  ModDes, EquationRes, EquationDefRes, ApplyExprMulti, TupleExprAuto, TuplePatternAuto,
+  LambdaExprMulti, BindingHostDes, LetDesExpr, CharExpr, StrExpr,
+  ClassDefDes,
+  InstanceDefDes,
+} from './node'
 import { extractMaybeInfixOp } from './parse'
 import { Dict, Set, id } from './utils'
 import { Fixity, builtinFixityDict } from './lex'
-import { CompiledMod } from './mods'
-import { map, mergeAll, pipe, range, values } from 'remeda'
+import { CompiledMod } from './mod'
+import { map, mapValues, mergeAll, pipe, range, values } from 'remeda'
 
 export type DesugarMap = {
   unit: UnitExpr
@@ -42,6 +44,8 @@ export type DesugarMap = {
   bindingDefRes: BindingDefRes<{}, 'des'>
   equationDefRes: EquationDefRes<{}, 'des'>
   equationDefGroupRes: BindingDefRes<{}, 'des'>
+  classDefRes: ClassDefDes
+  instanceDefRes: InstanceDefDes
   modRes: ModDes
 }
 export const assertDesugarMapCorrect: [NodeResType, keyof DesugarMap] =
@@ -101,11 +105,11 @@ export const desugarImpls: DesugarImpls = {
     yes: env.desugar(expr.yes),
     no: env.desugar(expr.no),
   }),
-  roll: (env, expr) => ApplyExprCurried(
+  roll: (env, expr) => ApplyExprMulti(
     { type: 'var', id: 'roll' },
     [expr.times ?? { type: 'num', val: 1 }, expr.sides].map(env.desugar),
   ),
-  applyMulti: (env, expr) => ApplyExprCurried(
+  applyMulti: (env, expr) => ApplyExprMulti(
     env.desugar(expr.func),
     expr.args.map(env.desugar)
   ),
@@ -125,7 +129,7 @@ export const desugarImpls: DesugarImpls = {
     pattern: env.desugar(expr.pattern),
     body: env.desugar(expr.body),
   }),
-  lambdaMultiRes: (env, expr) => LambdaExprCurried(
+  lambdaMultiRes: (env, expr) => LambdaExprMulti(
     expr.params.map(env.desugar),
     expr.idSets,
     env.desugar(expr.body),
@@ -149,7 +153,7 @@ export const desugarImpls: DesugarImpls = {
       const top = opStack.pop()!
       const right = exprStack.pop()!
       const left = exprStack.pop()!
-      exprStack.push(ApplyExprCurried(
+      exprStack.push(ApplyExprMulti(
         { type: 'var', id: top, isInfix: true },
         [left, right],
       ))
@@ -230,7 +234,7 @@ export const desugarImpls: DesugarImpls = {
         sub: 'var',
         var: { type: 'var', id: '!lhs' },
       },
-      body: ApplyExprCurried(
+      body: ApplyExprMulti(
         expr.op,
         [{ type: 'var', id: '!lhs' }, arg]
       ),
@@ -252,10 +256,10 @@ export const desugarImpls: DesugarImpls = {
     idSet: Set.of(['!subject']),
   }),
   list: (env, { elems }) => elems.reduceRight<ExprDes>(
-    (tail, head) => ApplyExprCurried({ type: 'var', id: '#' }, [env.desugar(head), tail]),
+    (tail, head) => ApplyExprMulti({ type: 'var', id: '#' }, [env.desugar(head), tail]),
     { type: 'var', id: '[]' }
   ),
-  tuple: (env, { elems }) => ApplyExprCurried(
+  tuple: (env, { elems }) => ApplyExprMulti(
     { type: 'var', id: `${','.repeat(elems.length - 1)}` },
     elems.map(env.desugar),
   ),
@@ -309,7 +313,7 @@ export const desugarImpls: DesugarImpls = {
         body: equation.rhs,
       })),
     }
-    const lambda = LambdaExprCurried(
+    const lambda = LambdaExprMulti(
       argVars.map(var_ => ({ type: 'pattern', sub: 'var', var: var_ })),
       argIds.map(Set.solo),
       case_,
@@ -337,9 +341,21 @@ export const desugarImpls: DesugarImpls = {
       ].map(def => def.binding),
     }
   },
+  classDefRes: (env, def) => ({
+    ...def,
+    type: 'classDefDes',
+    bindingHost: env.desugar(def.bindingHost),
+  }),
+  instanceDefRes: (env, def) => ({
+    ...def,
+    type: 'instanceDefDes',
+    bindingHost: env.desugar(def.bindingHost),
+  }),
   modRes: (env, mod) => ({
     ...mod,
     type: 'modDes',
+    classDefDict: mapValues(mod.classDefDict, env.desugar),
+    instanceDefs: mod.instanceDefs.map(env.desugar),
     bindingHost: env.desugar(mod.bindingHost),
   })
 }

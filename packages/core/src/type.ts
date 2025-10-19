@@ -1,8 +1,8 @@
 import { match } from 'ts-pattern'
 import { mapValues, pipe, range } from 'remeda'
-import { describeToShow, Dict, unsnoc, EqSet } from './utils'
-import { generalize } from './infer'
-import { Value } from './values'
+import { describeToShow, Dict, unsnoc, EqSet, Endo } from './utils'
+import { generalize, TypeInfer, TypeInferState, TypeSourced } from './infer'
+import { Value } from './value'
 import { isSymbolOrComma } from './lex'
 
 export type ConType = {
@@ -24,10 +24,10 @@ export const ApplyType = (func: Type, arg: Type): ApplyType => ({
   func,
   arg,
 })
-export const ApplyTypeCurried = (...[head, ...tail]: Type[]): Type => tail.length
+export const ApplyTypeMulti = (...[head, ...tail]: Type[]): Type => tail.length
   ? pipe(
     unsnoc(tail),
-    ([tailInit, last]) => ApplyType(ApplyTypeCurried(head, ...tailInit), last)
+    ([tailInit, last]) => ApplyType(ApplyTypeMulti(head, ...tailInit), last)
   )
   : head
 
@@ -65,10 +65,10 @@ export const FuncType = (param: Type, ret: Type): FuncType => ({
   ret,
 })
 
-export const FuncTypeCurried = (...types: Type[]): Type => {
+export const FuncTypeMulti = (...types: Type[]): Type => {
   const [head, ...tail] = types
   return (tail.length
-    ? FuncType(head, FuncTypeCurried(...tail))
+    ? FuncType(head, FuncTypeMulti(...tail))
     : head
   )
 }
@@ -81,12 +81,12 @@ export type Type =
 
 export type TypeSub = Type['sub']
 
-export const uncurryApplyType = (type: Type): Type[] => type.sub === 'apply'
-  ? [...uncurryApplyType(type.func), type.arg]
+export const extractApplyType = (type: Type): Type[] => type.sub === 'apply'
+  ? [...extractApplyType(type.func), type.arg]
   : [type]
 
-export const uncurryFuncType = (type: FuncType): Type[] => type.ret.sub === 'func'
-  ? [type.param, ...uncurryFuncType(type.ret)]
+export const extractFuncType = (type: FuncType): Type[] => type.ret.sub === 'func'
+  ? [type.param, ...extractFuncType(type.ret)]
   : [type.param, type.ret]
 
 export type TypeDesc =
@@ -120,10 +120,10 @@ export namespace Type {
     })
     .with({ sub: 'func' }, type => ({
       sub: 'func',
-      args: uncurryFuncType(type).map(describe),
+      args: extractFuncType(type).map(describe),
     }))
     .with({ sub: 'apply' }, type => {
-      const types = uncurryApplyType(type)
+      const types = extractApplyType(type)
       const [func, ...args] = types
       if (func.sub === 'con' && func.id.includes(','))
         return { sub: 'tuple', args: args.map(describe) }
@@ -153,29 +153,55 @@ export namespace Type {
       .exhaustive(),
     needsParen,
   )
+
+
+
+  export const rigidify = (type: Type): Type => match(type)
+    .with({ sub: 'var' }, var_ => RigidVarType(var_.id))
+    .with({ sub: 'con' }, () => type)
+    .with({ sub: 'func' }, type => FuncType(rigidify(type.param), rigidify(type.ret)))
+    .with({ sub: 'apply' }, type => ApplyType(rigidify(type.func), rigidify(type.arg)))
+    .exhaustive()
+}
+
+export type Constr = {
+  classId: string
+  arg: Type
+}
+export namespace Constr {
+  export const show = ({ classId, arg }: Constr): string =>
+    Type.show(ApplyType(ConType(classId), arg))
 }
 
 export type TypeScheme = {
-  typeParamSet: VarTypeSet
+  boundVarSet: VarTypeSet
+  constrs: Constr[]
   type: Type
 }
 export namespace TypeScheme {
   export const pure = (type: Type): TypeScheme => ({
-    typeParamSet: VarTypeSet.empty(),
+    boundVarSet: VarTypeSet.empty(),
+    constrs: [],
     type,
   })
-  export const mapType = (transform: (typeScheme: TypeScheme) => Type) =>
-    (typeScheme: TypeScheme) => pipe(typeScheme, ({ typeParamSet }): TypeScheme => ({
-      typeParamSet,
-      type: transform(typeScheme),
-    }))
 
-  export const show = ({ type, typeParamSet }: TypeScheme): string =>
-    `${typeParamSet.size ? `∀ ${[...typeParamSet].join(' ')}. ` : ''}${Type.show(type)}`
+  export const mapType = (transform: (typeScheme: TypeScheme) => Type) =>
+    (typeScheme: TypeScheme) => ({
+      ...typeScheme,
+      type: transform(typeScheme),
+    })
+
+  export const mergeConstrs = (constrs: Constr[]) => (typeScheme: TypeScheme): TypeScheme => ({
+    ...typeScheme,
+    constrs: [...typeScheme.constrs, ...constrs],
+  })
+
+  export const show = ({ type, boundVarSet }: TypeScheme): string =>
+    `${boundVarSet.size ? `∀ ${[...boundVarSet].join(' ')}. ` : ''}${Type.show(type)}`
 
   export const prettify = (typeScheme: TypeScheme): TypeScheme => {
-    const typeParamCount = typeScheme.typeParamSet.size
-    const typeParams = [...typeScheme.typeParamSet]
+    const typeParamCount = typeScheme.boundVarSet.size
+    const typeParams = [...typeScheme.boundVarSet]
     const prettyIds = typeParamCount <= 3
       ? [...'abc']
       : range(0, typeParamCount).map(i => `t${i + 1}`)
@@ -185,16 +211,17 @@ export namespace TypeScheme {
     if (allRigid) return typeScheme
 
     const subst = TypeSubst.empty()
-    const typeParamSet = VarTypeSet.empty()
+    const boundVarSet = VarTypeSet.empty()
 
     typeParams.forEach((param, i) => {
       const newParam = RigidVarType(param.id, prettyIds[i])
       subst[param.id] = newParam
-      typeParamSet.add(newParam)
+      boundVarSet.add(newParam)
     })
 
     return {
-      typeParamSet,
+      boundVarSet,
+      constrs: typeScheme.constrs.map(TypeSubst.applyConstr(subst)),
       type: TypeSubst.apply(subst)(typeScheme.type),
     }
   }
@@ -203,15 +230,14 @@ export namespace TypeScheme {
 export type TypeDict = Dict<Type>
 export type TypeSchemeDict = Dict<TypeScheme>
 
-
 export type TypeSubst = TypeDict
 export namespace TypeSubst {
   export const empty = (): TypeSubst => ({})
 
-  const _applyScheme = (subst: TypeSubst) => (typeParamSet: VarTypeSet) => {
+  export const applyBound = (subst: TypeSubst, boundVarSet: VarTypeSet): Endo<Type> => {
     const _apply = (type: Type): Type => match(type)
       .with({ sub: 'con' }, () => type)
-      .with({ sub: 'var' }, var_ => typeParamSet.has(var_) ? type : subst[var_.id] ?? type)
+      .with({ sub: 'var' }, var_ => boundVarSet.has(var_) ? type : subst[var_.id] ?? type)
       .with({ sub: 'func' }, type => FuncType(_apply(type.param), _apply(type.ret)))
       .with({ sub: 'apply' }, type => ApplyType(
         _apply(type.func),
@@ -221,23 +247,51 @@ export namespace TypeSubst {
     return _apply
   }
 
-  export const apply = (subst: TypeSubst) => _applyScheme(subst)(VarTypeSet.empty())
+  export const apply = (subst: TypeSubst): Endo<Type> =>
+    applyBound(subst, VarTypeSet.empty())
 
-  export const applyScheme = (subst: TypeSubst) =>
-    TypeScheme.mapType(({ typeParamSet, type }: TypeScheme) => _applyScheme(subst)(typeParamSet)(type))
+  export const applySourced = (subst: TypeSubst): Endo<TypeSourced> =>
+    TypeSourced.mapType(apply(subst))
 
-  export const applyDict = (subst: TypeSubst) =>
+  export const applyScheme = (subst: TypeSubst): Endo<TypeScheme> =>
+    ({ boundVarSet, type, constrs }) => ({
+      type: applyBound(subst, boundVarSet)(type),
+      boundVarSet,
+      constrs: constrs.map(applyConstr(subst)),
+    })
+
+  export const applyDict = (subst: TypeSubst): Endo<TypeDict> =>
     mapValues<TypeDict, Type>(apply(subst))
 
-  export const applySchemeDict = (subst: TypeSubst) =>
+  export const applySchemeDict = (subst: TypeSubst): Endo<TypeSchemeDict> =>
     mapValues<TypeSchemeDict, TypeScheme>(applyScheme(subst))
 
+  export const applyConstr = (subst: TypeSubst): Endo<Constr> =>
+    ({ classId, arg: type }) => ({
+      classId,
+      arg: apply(subst)(type)
+    })
+
+  export const applyInferState = (subst: TypeSubst): Endo<TypeInferState> =>
+    state => ({
+      subst: compose2(subst, state.subst),
+      constrs: state.constrs.map(applyConstr(subst)),
+    })
+
+  export const applyInfer = (subst: TypeSubst): Endo<TypeInfer> =>
+    infer => ({
+      type: applySourced(subst)(infer.type),
+      ...applyInferState(subst)(infer),
+    })
+
+  export const compose2 = (substOuter: TypeSubst, substInner: TypeSubst) => ({
+    ...substOuter,
+    ...applyDict(substOuter)(substInner),
+  })
+
   export const compose = (substs: TypeSubst[]) => substs.reduceRight(
-    (composed, subst) => {
-      const applied = applyDict(subst)(composed)
-      return { ...subst, ...applied }
-    },
-    {}
+    (substComposed, subst) => compose2(subst, substComposed),
+    empty(),
   )
 }
 
@@ -262,18 +316,18 @@ export const TypedValue = <T extends Type>(type: T, value: Value): TypedValue =>
 
 export type TypedValueEnv = Dict<TypedValue>
 
-export const rigidifyType = (type: Type): Type => match(type)
-  .with({ sub: 'var' }, var_ => RigidVarType(var_.id))
-  .with({ sub: 'con' }, () => type)
-  .with({ sub: 'func' }, type => FuncType(rigidifyType(type.param), rigidifyType(type.ret)))
-  .with({ sub: 'apply' }, type => ApplyType(rigidifyType(type.func), rigidifyType(type.arg)))
-  .exhaustive()
-
 export type TypeKind = {
   sub: 'type'
 }
 export const TypeKind = (): TypeKind => ({
   sub: 'type'
+})
+
+export type ConstraintKind = {
+  sub: 'constraint'
+}
+export const ConstraintKind = (): ConstraintKind => ({
+  sub: 'constraint'
 })
 
 export type FuncKind = {
@@ -286,14 +340,14 @@ export const FuncKind = (param: Kind, ret: Kind): FuncKind => ({
   param,
   ret,
 })
-export const FuncKindCurried = (...types: Kind[]): Kind => {
+export const FuncKindMulti = (...types: Kind[]): Kind => {
   const [head, ...tail] = types
   return (tail.length
-    ? FuncKind(head, FuncKindCurried(...tail))
+    ? FuncKind(head, FuncKindMulti(...tail))
     : head
   )
 }
-export const FuncNKind = (n: number): Kind => FuncKindCurried(...range(0, n).map(() => TypeKind()))
+export const FuncNKind = (n: number): Kind => FuncKindMulti(...range(0, n).map(() => TypeKind()))
 
 export type VarKind = {
   sub: 'var'
@@ -306,12 +360,14 @@ export const VarKind = (id: string): VarKind => ({
 
 export type Kind =
   | TypeKind
+  | ConstraintKind
   | FuncKind
   | VarKind
 
 export namespace Kind {
   export const show = (kind: Kind): string => match<Kind, string>(kind)
-    .with({ sub: 'type' }, () => 'Type')
+    .with({ sub: 'type' }, () => '*')
+    .with({ sub: 'constraint' }, () => 'Constraint')
     .with({ sub: 'func' }, ({ param, ret }) =>
       `${param.sub === 'func' ? `(${show(param)})` : show(param)} -> ${show(ret)}`
     )
@@ -329,20 +385,24 @@ export type KindSubst = KindDict
 export namespace KindSubst {
   export const empty = (): KindSubst => ({})
 
-  export const apply = (subst: KindSubst) => (kind: Kind): Kind => match(kind)
-    .with({ sub: 'type' }, () => kind)
-    .with({ sub: 'var' }, ({ id }) => subst[id] ?? kind)
-    .with({ sub: 'func' }, kind => FuncKind(apply(subst)(kind.param), apply(subst)(kind.ret)))
-    .exhaustive()
+  export const apply = (subst: KindSubst): Endo<Kind> =>
+    (kind) => match(kind)
+      .with({ sub: 'type' }, () => kind)
+      .with({ sub: 'constraint' }, () => kind)
+      .with({ sub: 'var' }, ({ id }) => subst[id] ?? kind)
+      .with({ sub: 'func' }, kind => FuncKind(apply(subst)(kind.param), apply(subst)(kind.ret)))
+      .exhaustive()
 
-  export const applyDict = (subst: KindSubst) =>
-    mapValues<KindDict, Kind>(apply(subst))
+  export const applyDict = (subst: KindSubst): Endo<KindDict> =>
+    mapValues(apply(subst))
+
+  export const compose2 = (substOuter: KindSubst, substInner: KindSubst) => ({
+    ...substOuter,
+    ...applyDict(substOuter)(substInner),
+  })
 
   export const compose = (substs: KindSubst[]) => substs.reduceRight(
-    (composed, subst) => {
-      const applied = applyDict(subst)(composed)
-      return { ...subst, ...applied }
-    },
-    {}
+    (substComposed, subst) => compose2(subst, substComposed),
+    empty(),
   )
 }

@@ -200,6 +200,15 @@ export type Dict<T> = Record<string, T>
 export namespace Dict {
   export const empty = <T>(): Dict<T> => ({})
 
-  export const fromEntries = <T>(entries: Iterable<readonly [string, T]>): Dict<T> =>
+  export const of = <T>(entries: Iterable<readonly [string, T]>): Dict<T> =>
     Object.fromEntries(entries)
+
+  export const strictOf = <T>(entries: Iterable<readonly [string, T]>): Result<Dict<T>, string> => {
+    const result: Dict<T> = {}
+    for (const [k, v] of entries) {
+      if (k in result) return Result.err(k)
+      result[k] = v
+    }
+    return Result.ok(result)
+  }
 }

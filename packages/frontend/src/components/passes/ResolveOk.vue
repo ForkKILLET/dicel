@@ -13,9 +13,11 @@ const showAll = ref(false)
 </script>
 
 <template>
-  <div class="resolve ok section">
+  <div class="ok section">
     <div class="badge">resolve</div>
-    Kinds: <button @click="showAll = ! showAll">{{ showAll ? 'all' : 'user' }}</button>
+    <div class="section-head">
+      Kinds: <button @click="showAll = ! showAll">{{ showAll ? 'all' : 'user' }}</button>
+    </div>
     <template v-for="kind, id in result.kindEnv" :key="id">
       <div v-if="showAll || id in result.modRes.dataDict">
         <TypeV :type="ConType(id)" :has-parent="true" />

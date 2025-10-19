@@ -2,11 +2,11 @@ import { Result } from 'fk-result'
 import { CheckMod } from '../check'
 import { Desugar } from '../desugar'
 import { ValueEnv, EvaluateError } from '../execute'
-import { Mod, ModRes, ModDes } from '../nodes'
+import { Mod, ModRes, ModDes } from '../node'
 import { Parse } from '../parse'
 import { Resolve } from '../resolve'
 import { map, mergeAll, pipe } from 'remeda'
-import { TypeEnv } from '../types'
+import { TypeEnv } from '../type'
 
 export type Stage =
   | 'parse'

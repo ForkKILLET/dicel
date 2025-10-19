@@ -163,6 +163,10 @@ footer .logo {
   background-color: black;
 }
 
+.section-head {
+  margin-bottom: .5em;
+}
+
 .section {
   position: relative;
   border: 1px solid grey;
