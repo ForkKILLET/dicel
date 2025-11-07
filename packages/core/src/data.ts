@@ -1,61 +1,58 @@
-import { pipe, map, fromEntries } from 'remeda'
-import { generalize } from './infer'
-import { Type, FuncTypeMulti, ApplyTypeMulti, ConType, VarType, TypedValue, TypeEnv, TypedValueEnv, Kind } from './type'
-import { ValueEnv } from './execute'
-import { ConValue, FuncValueN } from './value'
-import { Dict } from './utils'
+import * as R from 'remeda'
+import { pipe } from '@/utils/compose'
 
-export type DataCon = {
+import { Core } from '@/node/stage'
+import { DataDefNode } from '@/node/node'
+import { ApplyTypeMulti, ConType, FuncTypeMulti, Type, VarType } from '@/type/type'
+import { SymIdHeadOptional, SymIdHead } from '@/sym'
+import { TypedId as TypedId, TypedValue } from '@/builtin/termType'
+import { Map } from '@/utils/data'
+import { FuncMultiValue } from './value/value'
+
+export type DataCon<SH extends SymIdHeadOptional = {}> = SH & {
   id: string
   params: Type[]
 }
 
-export namespace DataCon {
-}
-
-export type Data = {
+export type DataInfo<SH extends SymIdHeadOptional = {}> = SH & {
   id: string
-  typeParams: VarType[]
-  cons: DataCon[]
+  params: VarType[]
+  cons: DataCon<SH>[]
 }
-export type DataEnv = Dict<Data>
-export type KindedData = Data & { kind: Kind }
-export type KindedDataEnv = Dict<KindedData>
+export type DataMap = Map<string, DataInfo<SymIdHead>>
 
-export namespace Data {
-  export const getType = ({ id, typeParams }: Data, { params }: DataCon) =>
-    FuncTypeMulti(...params.map(Type.rigidify), ApplyTypeMulti(ConType(id), ...typeParams.map(Type.rigidify)))
+export namespace DataInfo {
+  export const ofNode = (dataDef: DataDefNode<Core>): DataInfo => ({
+    id: dataDef.id.id,
+    params: dataDef.params.map(R.prop('type')),
+    cons: dataDef.cons.map(con => ({
+      id: con.func.id,
+      params: con.params.map(R.prop('type')),
+    })),
+  })
 
-  export const getValue = ({ id, params }: DataCon) =>
-    FuncValueN(params.length)((...vals) => ConValue(id, vals))
+  export const getTypeId = (dataInfo: DataInfo<SymIdHead>) => (con: DataCon<SymIdHead>) => ({
+    id: con.id,
+    symId: con.symId,
+    type: Type.generalize(FuncTypeMulti(...con.params, ApplyTypeMulti(ConType(dataInfo.id), ...dataInfo.params))),
+  })
 
-  export const getEnv = (data: Data): TypeEnv => pipe(
-    data.cons,
-    map(con => [
-      con.id,
-      generalize(getType(data, con)),
-    ] as const),
-    fromEntries(),
-  )
-
-  export const getValueEnv = ({ cons }: Data): ValueEnv => pipe(
-    cons,
-    map(con => [
-      con.id,
-      { value: getValue(con) },
-    ] as const),
-    fromEntries(),
-  )
-
-  export const getTypedValueEnv = (data: Data): TypedValueEnv => pipe(
-    data.cons,
-    map(con => [
-      con.id,
-      TypedValue(
-        getType(data, con),
-        getValue(con),
+  export const getTypeValue = (dataInfo: DataInfo<SymIdHead>) => {
+    const _getTypeId = getTypeId(dataInfo)
+    return (con: DataCon<SymIdHead>): TypedValue<SymIdHead> => ({
+      ..._getTypeId(con),
+      value: FuncMultiValue(
+        con.params.length,
+        (...args) => ({
+          ty: 'data',
+          con: con.symId,
+          args,
+        })
       )
-    ] as const),
-    fromEntries(),
-  )
+    })
+  }
+
+  export const getTypedIds = (dataInfo: DataInfo<SymIdHead>): TypedId<SymIdHead>[] => dataInfo.cons.map(getTypeId(dataInfo))
+
+  export const getTypedValues = (dataInfo: DataInfo<SymIdHead>): TypedValue<SymIdHead>[] => dataInfo.cons.map(getTypeValue(dataInfo))
 }

@@ -6,7 +6,6 @@
 # Dist
 node_modules
 dist/
-storybook-static
 
 # IDE
 .vscode/*

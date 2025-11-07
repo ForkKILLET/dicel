@@ -1,14 +1,12 @@
 -- Boolean
 
-data Bool = True | False
-
 (||) :: Bool -> Bool -> Bool
-(||) True _ = True
-(||) False y = y
+True  || _ = True
+False || y = y
 
 (&&) :: Bool -> Bool -> Bool
-(&&) False _ = False
-(&&) True y = y
+False && _ = False
+True  && y = y
 
 not :: Bool -> Bool
 not True = False
@@ -56,13 +54,13 @@ neg :: Num -> Num
 neg x = 0 - x
 
 min :: Num -> Num -> Num
-min x y = x < y ? x : y
+min x y = if x < y then x else y
 
 max :: Num -> Num -> Num
-max x y = x > y ? x : y
+max x y = if x > y then x else y
 
 abs :: Num -> Num
-abs x = x < 0 ? neg x : x
+abs x = if x < 0 then neg x else x
 
 -- Function
 
@@ -76,53 +74,56 @@ flip :: (a -> b -> c) -> b -> a -> c
 flip f x y = f y x
 
 (|>) :: a -> (a -> b) -> b
-(|>) x f = f x
+x |> f = f x
 
 ($) :: (a -> b) -> a -> b
-($) f x = f x
+f $ x = f x
 
-(.) :: (b -> c) -> (a -> b) -> a -> c
-(.) f g x = f (g x)
+(<<) :: (b -> c) -> (a -> b) -> a -> c
+(f << g) x = f (g x)
+
+(>>) :: (a -> b) -> (b -> c) -> a -> c
+(f >> g) x = g (f x)
 
 -- List
 
 map :: (a -> b) -> [a] -> [b]
 map _ [] = []
-map f (x#xs) = f x # map f xs
-
-filter :: (a -> Bool) -> [a] -> [a]
-filter _ [] = []
-filter p (x#xs) =
-  let xs' = filter p xs
-  in p x ? x#xs' : xs'
+map f (x:xs) = f x : map f xs
 
 (<$>) = map
 infixl 4 <$>
 
+filter :: (a -> Bool) -> [a] -> [a]
+filter _ [] = []
+filter p (x:xs) =
+  let xs' = filter p xs
+  in  if p x then x:xs' else xs'
+
 sort :: [Num] -> [Num]
 sort [] = []
-sort (p#xs) =
+sort (p:xs) =
   let smallers = filter (< p) xs
       biggers = filter (>= p) xs
-  in sort smallers ++ (p # sort biggers)
+  in  sort smallers ++ (p : sort biggers)
 
 (++) :: [a] -> [a] -> [a]
-(++) [] ys = ys
-(++) (x#xs) ys = x # (xs ++ ys)
+[] ++ ys = ys
+(x:xs) ++ ys = x : (xs ++ ys)
 
 take :: Num -> [a] -> [a]
 take 0 _ = []
 take _ [] = []
-take n (x#xs) = x # take (n - 1) xs
+take n (x:xs) = x : take (n - 1) xs
 
 drop :: Num -> [a] -> [a]
 drop 0 xs = xs
 drop _ [] = []
-drop n (x#xs) = drop (n - 1) xs
+drop n (x:xs) = drop (n - 1) xs
 
 foldr :: (a -> b -> b) -> b -> [a] -> b
 foldr _ z [] = z
-foldr f z (x#xs) = f x (foldr f z xs)
+foldr f z (x:xs) = f x (foldr f z xs)
 
 -- Maybe
 
@@ -130,7 +131,7 @@ data Maybe a = Just a | Nothing
 
 listToMaybe :: [a] -> Maybe a
 listToMaybe [] = Nothing
-listToMaybe (x#_) = Just x
+listToMaybe (x:_) = Just x
 
 maybeToList :: Maybe a -> [a]
 maybeToList Nothing = []
@@ -153,9 +154,3 @@ data Either a b = Left a | Right b
 -- Ordering
 
 data Ordering = LT | EQ | GT
-
-compare :: Num -> Num -> Ordering
-compare x y =
-  x < y ? LT :
-  x > y ? GT :
-  EQ

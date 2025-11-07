@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "lib": [ "ESNext" ],
+    "lib": ["ESNext"],
     "module": "ESNext",
     "target": "ES2015",
     "noEmit": true,
@@ -10,7 +10,10 @@
     "resolveJsonModule": true,
     "moduleResolution": "bundler",
     "useDefineForClassFields": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src"]
 }

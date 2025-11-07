@@ -1,30 +1,45 @@
-import { entries, groupBy, groupByProp, map, pipe } from 'remeda'
-import { ClassDefDes } from './node'
-import { Type, TypeEnv, TypeScheme } from './type'
-import { Dict } from './utils'
+import { Constrs, Type, TypeScheme, VarType } from '@/type/type'
+import { TypedId } from '@/builtin/termType'
+import { SymIdHeadOptional, SymIdHead, SymId } from '@/sym'
+import { AstId } from '@/node/astId'
+import { DefaultMap, Map } from '@/utils/data'
+import * as R from 'remeda'
+import { pipe } from '@/utils/compose'
 
-export type Instance = {
+export type InstanceInfo<SH extends SymIdHeadOptional = {}> = SH & {
+  instanceId: string
   classId: string
   arg: Type
+  symId: SymId
 }
-export type InstanceDict = Dict<Instance[]>
-export namespace InstanceDict {
-  export const empty = (): InstanceDict => ({})
+export type InstanceMap = Map<AstId, InstanceInfo<SymIdHead>>
+export type ClassInstanceMap = DefaultMap<string, InstanceInfo<SymIdHead>[]>
 
-  export const of = (instances: Instance[]): InstanceDict =>
-    groupByProp(instances, 'classId')
+export type ClassMember<SH extends SymIdHeadOptional = {}> = SH & {
+  id: string
+  astId: AstId
+  sigType: TypeScheme
 }
 
-export namespace Class {
-  export const getEnv = (def: ClassDefDes): TypeEnv => pipe(
-    entries(def.bindingHost.declDict),
-    map(([id, decl]) => [
-      id,
-      pipe(
-        decl.ann.typeScheme,
-        TypeScheme.mergeConstrs([{ classId: def.id, arg: def.param }])
-      )
-    ] as const),
-    Dict.of,
+export type ClassInfo<SH extends SymIdHeadOptional = {}> = SH & {
+  id: string
+  astId: AstId
+  param: VarType
+  members: Map<string, ClassMember<SH>>
+  constrs: Constrs
+}
+export type ClassMap = Map<string, ClassInfo<SymIdHead>>
+
+export namespace ClassInfo {
+  export const getTypedIds = (classInfo: ClassInfo<SymIdHead>): TypedId<SymIdHead>[] => pipe(
+    [...classInfo.members.values()],
+    R.map(member => ({
+      id: member.id,
+      type: pipe(
+        member.sigType,
+        TypeScheme.unionConstrs([{ classId: classInfo.id, arg: classInfo.param }]),
+      ),
+      symId: member.symId,
+    }))
   )
 }

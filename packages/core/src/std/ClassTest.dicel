@@ -1,0 +1,31 @@
+import Prelude open (Bool, True, False, (||), (+), ($), (>>))
+
+class Eq a where
+  (==) :: a -> a -> Bool
+
+instance Eq Num where
+  (==) = eqNum
+
+class Monoid m where
+  mempty :: m
+  (<.>) :: m -> m -> m
+
+data Any = Any Bool
+getAny (Any x) = x
+
+instance Monoid Any where
+  mempty = Any False
+  Any x <.> Any y = Any $ x || y
+
+class Foldable t where
+  foldMap :: Monoid m => (a -> m) -> t a -> m
+
+instance Foldable [] where
+  foldMap _ []     = mempty
+  foldMap f (x:xs) = f x <.> foldMap f xs
+
+any p = foldMap (p >> Any) >> getAny
+
+elem x = any (x ==)
+
+main = elem 1 [1, 2, 3]

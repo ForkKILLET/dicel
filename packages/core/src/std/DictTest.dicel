@@ -1,0 +1,17 @@
+import Prelude open { (||), (&&), (+) }
+
+class Eq a where
+  (==) :: a -> a -> Bool
+
+instance Eq Num where
+  (==) = eqNum
+
+instance Eq [Num] where
+  (x:xs) == (y:ys) = x == y && xs == ys
+  _      == _      = False
+
+f a b = a == b || b == a
+
+g a b c d = a == b || f c d || 1 == 2 || [] == []
+
+main = g 3 4 [5] [6]

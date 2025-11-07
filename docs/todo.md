@@ -1,19 +1,13 @@
 # Todo
 
-## 1.0.0 ~ 2.0.0
-
+## Now
 
 - (.) infix enhancements
   - (v) custom operators
   - (v) fixity parsing
-  - (v) custom fixity
+  - (.) custom fixity (bind to symbol)
   - (v) sections
   - ( ) back quotes
-
-- (.) binding groups
-  - (v) equations
-  - ( ) func head
-  - (v) binding host
 
 - (.) modules
   - (v) top level definitions
@@ -23,16 +17,41 @@
     - (v) import types & fixities
     - ( ) qualified import
   - (v) prelude
-  - ( ) module dep resolution
+  - (v) module dep resolution
+  - ( ) export (visibility) control
+  - ( ) open namespace (qualified module, record, etc.)
 
 - (v) check kind
-  - (v) check data decls
-
-- ( ) guards
+  - (v) check data defs
 
 - (v) char & string
 
-- ( ) type class
+- (v) records
+  - (v) record def
+  - (v) record lit
+  - (v) record pattern
+  - (v) record update
+
+- ( ) parser optimizations
+  - ( ) lexer
+  - ( ) better error messages
+  - ( ) better performance
+
+- ( ) type classes
+  - (v) class def & instance def
+    - (v) check instance methods
+      - (v) name check (missing & extra)
+      - (v) type check
+      - (v) context check
+    - (v) check class head
+  - (v) constr collecting
+  - (v) constr solving
+  - (.) instance resolving
+    - ( ) overlapping instances
+  - (v) evidence collecting
+  - (.) class desugaring (dict passing)
+  - ( ) super classes
+  - ( ) default methods
 
 ---
 
@@ -40,15 +59,13 @@
 
 - ( ) type synonyms
 
+- ( ) guards
+
 - ( ) list comprehension
 
 - ( ) effect system
 
 - ( ) lazy
-
-- ( ) better errors
-  - ( ) better parse errors
-  - ( ) better check errors
 
 - ( ) compile to ...
   - ( ) LLVM IR
@@ -66,3 +83,8 @@
 - (v) custom ADT
 - (v) dicel IR => Node Stage
 - (v) comment
+
+- (v) binding groups
+  - (v) equations
+  - (v) func head
+  - (v) binding host

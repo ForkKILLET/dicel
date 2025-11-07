@@ -1,6 +1,6 @@
-import { entries, filter, fromEntries, pipe } from 'remeda'
-import { Err, Ok, Result } from 'fk-result'
-import { Comp, Ord } from './types'
+import * as R from 'remeda'
+import { pipe } from 'remeda'
+import { Comp as Cmp, Ord } from '@/utils/types'
 
 export const unsnoc = <A>(as: A[]): [A[], A] => [
   as.slice(0, -1),
@@ -10,9 +10,9 @@ export const unsnoc = <A>(as: A[]): [A[], A] => [
 export const filterKeys = <T>(pred: (key: string) => boolean) =>
   (object: Record<string, T>): Record<string, T> => pipe(
     object,
-    entries(),
-    filter(([key]) => pred(key)),
-    fromEntries(),
+    R.entries(),
+    R.filter(([key]) => pred(key)),
+    R.fromEntries(),
   )
 
 export const zip3 = <A, B, C>(as: A[], bs: B[], cs: C[]): [A, B, C][] => {
@@ -24,36 +24,61 @@ export const zip3 = <A, B, C>(as: A[], bs: B[], cs: C[]): [A, B, C][] => {
   return result
 }
 
+export const unzip = <A, B>(abs: Iterable<readonly [A, B]>): [A[], B[]] => {
+  const as: A[] = []
+  const bs: B[] = []
+  for (const [a, b] of abs) {
+    as.push(a)
+    bs.push(b)
+  }
+  return [as, bs]
+}
+
 export const id = <const A>(a: A): A => a
 export const the = <A>(a: NoInfer<A>): A => a
 
-export const describeToShow = <T, D>(
-  describe: (input: T) => D,
-  show: (desc: D, show: (desc: D) => string) => string,
-  needsParen: (self: D, parent: D | null) => boolean,
-) => {
-  const _show = (parent: D | null) => (self: D) => {
-    const text = show(self, _show(self))
-    return needsParen(self, parent) ? `(${text})` : text
-  }
-  return (input: T) => _show(null)(describe(input))
-}
+export const memberOf = <T extends object, K extends keyof any>(obj: T) => (key: K): key is K & keyof T => key in obj
 
-export const fromEntriesStrict = <K extends keyof any, V>(entries: Iterable<readonly [K, V]>): Result<Record<K, V>, K> => {
-  const record = {} as Record<K, V>
-  for (const [k, v] of entries) {
-    if (k in record) return Err(k)
-    record[k] = v
-  }
-  return Ok(record)
-}
-
-export const memberOf = <K extends keyof any>(record: Record<K, any>) =>
-  (key: keyof any): key is K => key in record
-
-export const equalBy = <T, K extends keyof T>(key: K): Comp<T> => (x, y) => x[key] === y[key]
+export const equalBy = <T, K extends keyof T>(key: K): Cmp<T> => (x, y) => x[key] === y[key]
 
 export const indent = (spaces: number) => (str: string) => {
   const pad = ' '.repeat(spaces)
   return str.split('\n').map(line => pad + line).join('\n')
 }
+
+export const maxBy = <T>(ord: Ord<T>) => (xs: T[]): T =>
+  xs.reduce((max, x) => ord(max, x) >= 0 ? max : x)
+
+export const minBy = <T>(ord: Ord<T>) => (xs: T[]): T =>
+  xs.reduce((min, x) => ord(min, x) <= 0 ? min : x)
+
+export const replicate = <T>(n: number, getValue: () => T): T[] => {
+  const result: T[] = []
+  for (let i = 0; i < n; i ++) result.push(getValue())
+  return result
+}
+
+export const coerce = <T, U extends T>(pred: (value: T) => value is U) => (value: T): U => {
+  if (pred(value)) return value
+  throw new Error(`Coercion failed, got ${String(value)}`)
+}
+
+export const split2 = (str: string, sep: string): [string, string] => {
+  const ix = str.indexOf(sep)
+  if (ix === -1) return [str, '']
+  return [str.slice(0, ix), str.slice(ix + sep.length)]
+}
+
+export const mapInplace = <T>(arr: T[], f: (item: T, index: number, arr: T[]) => T): T[] => {
+  arr.forEach((item, index) => {
+    arr[index] = f(item, index, arr)
+  })
+  return arr
+}
+
+export const logWith = <T>(show: (value: T) => string) => (value: T): T => {
+  console.log(show(value))
+  return value
+}
+
+export { pipe, R }

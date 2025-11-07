@@ -1,269 +1,434 @@
 <script setup lang="ts">
-import { type DId, type DRange, isSymbol, isUpper, Node, showStr } from '@dicel/core'
+import { Node, showStr } from '@dicel/core'
 
-import { computed, useTemplateRef } from 'vue'
-import { Selection, useSelectable } from '../utils/selectable'
-import TypeV from './TypeV.vue'
-import PatternV from './PatternV.vue'
-
-import { values } from 'remeda'
-import TypeScheme from './TypeScheme.vue'
+import { computed, inject, useTemplateRef } from 'vue'
+import { reactivePick } from '@vueuse/core'
+import TypeV from '@comp/TypeV.vue'
+import TypeScheme from '@comp/TypeSchemeV.vue'
+import { useSelectable } from '@util/nodeSelection'
+import { kNodeSelection } from '@util/inject'
 
 const props = withDefaults(defineProps<{
-  node: Node<DRange & DId> | Node
-  selection?: Selection
-  parent?: Node<DRange & DId> | Node | null
+  node: Node
+  path?: Node[]
+  isBrief?: boolean
 }>(), {
-  parent: null,
+  path: () => [],
 })
 
-const root = useTemplateRef('root')
-const { classes } = useSelectable(root, props)
+const selection = inject(kNodeSelection)!
 
-const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
+const nodeRef = useTemplateRef('node')
+const { classes } = useSelectable(nodeRef, selection, reactivePick(props, ['node', 'path']))
+
+const parent = computed(() => props.path.at(-1) ?? null)
+
+const pathNew = computed(() => [...props.path, props.node])
+
+const withParen = computed(() => Node.checkParen(props.node, parent.value))
 </script>
 
 <template>
   <span
     class="node"
-    ref="root"
-    :class="classes"
+    ref="node"
+    :class="{
+      ...classes,
+      'node-root': ! parent,
+      'node-host': node.ty === 'mod' || node.ty === 'bindingHost',
+      'node-paren': withParen,
+    }"
+    :data-ty="node.ty"
+    :data-id="node.astId"
   >
-    <span v-if="withParen">(</span>
-    <span v-if="node.type === 'num'">
+    <template v-if="node.ty === 'num'">
       <span class="node-lit">{{ node.val }}</span>
-    </span>
-    <span v-else-if="node.type === 'unit'">()</span>
-    <span v-else-if="node.type === 'char'">
+    </template>
+    <template v-else-if="node.ty === 'unit'">
+      ()
+    </template>
+    <template v-else-if="node.ty === 'char'">
       <span class="node-lit">{{ showStr(node.val, '\'') }}</span>
-    </span>
-    <span v-else-if="node.type === 'str'">
+    </template>
+    <template v-else-if="node.ty === 'str'">
       <span class="node-lit">{{ showStr(node.val, '"') }}</span>
-    </span>
-    <span v-else-if="node.type === 'var'">
-      <span :class="isSymbol(node.id) ? 'node-op' : isUpper(node.id[0]) ? 'node-con' : 'node-var'">{{ node.id }}</span>
-    </span>
-    <span v-else-if="node.type === 'roll'">
-      <NodeV v-if="node.times" :node="node.times" :selection="selection" :parent="node" />
+    </template>
+    <template v-else-if="node.ty === 'var'">
+      <NodeV :node="node.id" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'id'">
+      <span :class="{ big: 'node-con', small: 'node-var', sym: 'node-op', other: null }[node.style]">{{ node.id }}</span>
+    </template>
+    <template v-else-if="node.ty === 'roll'">
+      <NodeV v-if="node.times" :node="node.times" :path="pathNew" />
       <span class="node-sym">@</span>
-      <NodeV :node="node.sides" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'cond'">
-      <NodeV :node="node.cond" :selection="selection" :parent="node" />
-      <div class="node-block">
-        <span class="node-sym node-spaced-right">?</span>
-        <NodeV :node="node.yes" :selection="selection" :parent="node" />
+      <NodeV :node="node.sides" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'cond'">
+      <span class="node-kw">if</span>
+      <NodeV :node="node.cond" :path="pathNew" />
+      <div class="node-inline-block">
+        <span class="node-kw">then</span>
+        <NodeV :node="node.yes" :path="pathNew" />
       </div>
-      <div class="node-block">
-        <span class="node-sym node-spaced-right">:</span>
-        <NodeV :node="node.no" :selection="selection" :parent="node" />
+      <div class="node-inline-block">
+        <span class="node-kw">else</span>
+        <NodeV :node="node.no" :path="pathNew" />
       </div>
-    </span>
-    <span v-else-if="node.type === 'let' || node.type === 'letRes' || node.type === 'letDes'">
+    </template>
+    <template v-else-if="node.ty === 'let'">
       <span class="node-kw">let</span>
-      <NodeV :node="node.bindingHost" :selection="selection" :parent="node" />
+      <NodeV :node="node.bindingHost" :path="pathNew" />
       <div>
         <span class="node-kw">in</span>
-        <NodeV :node="node.body" :selection="selection" :parent="node" />
+        <NodeV :node="node.body" :path="pathNew" />
       </div>
-    </span>
-    <span v-else-if="node.type === 'binding' || node.type === 'bindingRes'">
-      <NodeV :node="node.lhs" :selection="selection" :parent="node" />
+    </template>
+    <template v-else-if="node.ty === 'binding'">
+      <NodeV :node="node.pat" :path="pathNew" />
       <span class="node-sym node-spaced">=</span>
-      <NodeV :node="node.rhs" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'equation' || node.type === 'equationRes'">
-      <NodeV :node="node.var" :selection="selection" :parent="node" />
+      <NodeV :node="node.body" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'equationApplyHead' || node.ty === 'equationApplyFlattenHead'">
+      <NodeV :node="node.func" :path="pathNew" />
       <template v-for="param of node.params">
-        <NodeV :node="param" :selection="selection" :parent="node" class="node-spaced-left" />
+        <NodeV :node="param" :path="pathNew" class="node-spaced-left" />
       </template>
+    </template>
+    <template v-else-if="node.ty === 'equationInfixHead'">
+      <NodeV :node="node.lhs" :path="pathNew" />
+      <NodeV :node="node.op" :path="pathNew" class="node-spaced" />
+      <NodeV :node="node.rhs" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'equation'">
+      <NodeV :node="node.head" :path="pathNew" />
       <span class="node-sym node-spaced">=</span>
-      <NodeV :node="node.rhs" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'case' || node.type === 'caseRes'">
+      <NodeV :node="node.body" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'case'">
       <span class="node-kw">case</span>
-      <NodeV :node="node.subject" :selection="selection" :parent="node" />
+      <NodeV :node="node.scrutinee" :path="pathNew" />
       <span class="node-kw node-spaced">of</span>
-      <div v-for="branch, i in node.branches" :key="i" class="node-block">
-        <NodeV :node="branch" :selection="selection" :parent="node" />
+      <div v-for="branch, ix in node.branches" :key="ix" class="node-inline-block">
+        <NodeV :node="branch" :path="pathNew" />
       </div>
-    </span>
-    <span v-else-if="node.type === 'caseBranch' || node.type === 'caseBranchRes'">
-      <NodeV :node="node.pattern" :selection="selection" :parent="node" />
+    </template>
+    <template v-else-if="node.ty === 'caseBranch'">
+      <NodeV :node="node.pat" :path="pathNew" />
       <span class="node-sym node-spaced">-&gt;</span>
-      <NodeV :node="node.body" :selection="selection" :parent="node" />
-    </span>
-    <PatternV v-else-if="node.type === 'pattern'" :node="node" />
-    <span v-else-if="node.type === 'apply'">
-      <NodeV :node="node.func" :selection="selection" :parent="node" />
-      <NodeV :node="node.arg" :selection="selection" :parent="node" class="node-spaced-left" />
-    </span>
-    <span v-else-if="node.type === 'applyMulti'">
-      <NodeV :node="node.func" :selection="selection" :parent="node" />
-      <NodeV v-for="arg of node.args" :node="arg" :selection="selection" :parent="node" class="node-spaced-left" />
-    </span>
-    <span v-else-if="node.type === 'infix'">
-      <template v-for="arg, i of node.args">
-        <NodeV :node="arg" :selection="selection" :parent="node" />
-        <NodeV v-if="i < node.args.length - 1" :node="node.ops[i]" :selection="selection" :parent="node" class="node-spaced" />
+      <NodeV :node="node.body" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'varPat'">
+      <NodeV :node="node.id" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'numPat'">
+      <span class="node-lit">{{ node.val }}</span>
+    </template>
+    <template v-else-if="node.ty === 'unitPat'">
+      ()
+    </template>
+    <template v-else-if="node.ty === 'dataPat'">
+      <NodeV :node="node.con" :path="pathNew" />
+      <template v-for="arg of node.args">
+        <span class="node-spaced-right"></span>
+        <NodeV :node="arg" :path="pathNew" />
       </template>
-    </span>
-    <span v-else-if="node.type === 'sectionL'">
-      <NodeV :node="node.arg" :selection="selection" :parent="node" />
-      <NodeV :node="node.op" :selection="selection" :parent="node" class="node-spaced-left" />
-    </span>
-    <span v-else-if="node.type === 'sectionR'">
-      <NodeV :node="node.op" :selection="selection" :parent="node" class="node-spaced-right" />
-      <NodeV :node="node.arg" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'lambdaRes'">
-      <span class="node-sym">\</span>
-      <NodeV :node="node.param" :selection="selection" :parent="node" class="node-spaced-right" />
-      <span class="node-sym node-spaced-right">-&gt;</span>
-      <NodeV :node="node.body" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'lambdaMulti' || node.type === 'lambdaMultiRes'">
-      <span class="node-sym">\</span>
-      <NodeV v-for="param of node.params" :node="param" :selection="selection" :parent="node" class="node-spaced-right" />
-      <span class="node-sym node-spaced-right">-&gt;</span>
-      <NodeV :node="node.body" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'lambdaCase' || node.type === 'lambdaCaseRes'">
-      <span class="node-sym">\case</span>
-      <div v-for="branch of node.branches" class="node-block">
-        <NodeV :node="branch" :selection="selection" :parent="node" />
-      </div>
-    </span>
-    <span v-else-if="node.type === 'list'">
-      [<template v-for="elem, i of node.elems" :key="i">
-        <NodeV :node="elem" :selection="selection" :parent="node" />
-        <span v-if="i < node.elems.length - 1" class="node-spaced-right">,</span>
+    </template>
+    <template v-else-if="node.ty === 'recordPatPunningField'">
+      <NodeV :node="node.key" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'recordPatRebindingField'">
+      <NodeV :node="node.key" :path="pathNew" />
+      <span class="node-sym">@</span>
+      <NodeV :node="node.pat" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'recordPat'">
+      <NodeV :node="node.con" :path="pathNew" class="node-spaced-right" />
+      <span class="node-spaced-right">{</span>
+      <template v-for="field, ix of node.fields">
+        <NodeV :node="field" :path="pathNew" />
+        <span v-if="ix < node.fields.length - 1" class="node-spaced-right">,</span>
+      </template>
+      <span class="node-spaced-left">}</span>
+    </template>
+    <template v-else-if="node.ty === 'infixPat'">
+      <template v-for="args, ix of node.args">
+        <NodeV :node="args" :path="pathNew" />
+        <span v-if="ix < node.args.length - 1" class="node-spaced">
+          <NodeV :node="node.ops[ix]" :path="pathNew" />
+        </span>
+      </template>
+    </template>
+    <template v-else-if="node.ty === 'varRef'">
+      <NodeV :node="node.id" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'wildcardPat'">
+      <span class="node-sym">_</span>
+    </template>
+    <template v-else-if="node.ty === 'listPat'">
+      [<template v-for="elem, ix of node.elems">
+        <NodeV :node="elem" :path="pathNew" />
+        <span v-if="ix < node.elems.length - 1" class="node-spaced-right">,</span>
       </template>]
-    </span>
-    <span v-else-if="node.type === 'tuple'">
-      (<template v-for="elem, i of node.elems" :key="i">
-        <NodeV :node="elem" :selection="selection" :parent="node" />
-        <span v-if="i < node.elems.length - 1" class="node-spaced-right">,</span>
+    </template>
+    <template v-else-if="node.ty === 'tuplePat'">
+      (<template v-for="elem, ix of node.elems">
+        <NodeV :node="elem" :path="pathNew" />
+        <span v-if="ix < node.elems.length - 1" class="node-spaced-right">,</span>
       </template>)
-    </span>
-    <span v-else-if="node.type === 'paren'">
-      (<NodeV :node="node.expr" :selection="selection" :parent="node" />)
-    </span>
-    <span v-else-if="node.type === 'ann'">
-      <NodeV :node="node.expr" :selection="selection" :parent="node" />
+    </template>
+    <template v-else-if="node.ty === 'recordPunningField'">
+      <NodeV :node="node.key" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'recordBindingField'">
+      <NodeV :node="node.key" :path="pathNew" />
+      <template v-if="node.val">
+        <span class="node-sym node-spaced">=</span>
+        <NodeV :node="node.val" :path="pathNew" />
+      </template>
+    </template>
+    <template v-else-if="node.ty === 'record'">
+      <NodeV :node="node.con" :path="pathNew" class="node-spaced-right" />
+      <span class="node-spaced-right">{</span>
+      <template v-for="field, ix of node.fields">
+        <NodeV :node="field" :path="pathNew" />
+        <span v-if="ix < node.fields.length - 1" class="node-spaced-right">,</span>
+      </template>
+      <span class="node-spaced-left">}</span>
+    </template>
+    <template v-else-if="node.ty === 'recordUpdatePunningMatchingField'">
+      <NodeV :node="node.key" :path="pathNew" />
+      <span class="node-sym node-spaced">-&gt;</span>
+      <NodeV :node="node.body" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'recordUpdatePipeField'">
+      <NodeV :node="node.key" :path="pathNew" />
+      <span class="node-sym node-spaced">|></span>
+      <NodeV :node="node.func" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'recordUpdateMatchingField'">
+      <NodeV :node="node.key" :path="pathNew" />
+      <span class="node-sym">@</span>
+      <NodeV :node="node.pat" :path="pathNew" />
+      <span class="node-sym node-spaced">-&gt;</span>
+      <NodeV :node="node.body" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'recordUpdate'">
+      <NodeV :node="node.con" :path="pathNew" class="node-spaced-right" />
+      <span class="node-spaced-right">{</span>
+      <template v-for="field, ix of node.fields">
+        <NodeV :node="field" :path="pathNew" />
+        <span v-if="ix < node.fields.length - 1" class="node-spaced-right">,</span>
+      </template>
+      <span class="node-spaced-left">}</span>
+    </template>
+    <template v-else-if="node.ty === 'apply'">
+      <NodeV :node="node.func" :path="pathNew" />
+      <NodeV :node="node.arg" :path="pathNew" class="node-spaced-left" />
+    </template>
+    <template v-else-if="node.ty === 'applyMulti'">
+      <NodeV :node="node.func" :path="pathNew" />
+      <NodeV v-for="arg of node.args" :node="arg" :path="pathNew" class="node-spaced-left" />
+    </template>
+    <template v-else-if="node.ty === 'infix'">
+      <template v-for="arg, ix of node.args">
+        <NodeV :node="arg" :path="pathNew" />
+        <NodeV v-if="ix < node.args.length - 1" :node="node.ops[ix]" :path="pathNew" class="node-spaced" />
+      </template>
+    </template>
+    <template v-else-if="node.ty === 'sectionL'">
+      <NodeV :node="node.arg" :path="pathNew" />
+      <NodeV :node="node.op" :path="pathNew" class="node-spaced-left" />
+    </template>
+    <template v-else-if="node.ty === 'sectionR'">
+      <NodeV :node="node.op" :path="pathNew" class="node-spaced-right" />
+      <NodeV :node="node.arg" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'lambda'">
+      <span class="node-sym">\</span>
+      <NodeV :node="node.param" :path="pathNew" class="node-spaced-right" />
+      <span class="node-sym node-spaced-right">-&gt;</span>
+      <NodeV :node="node.body" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'lambdaMulti'">
+      <span class="node-sym">\</span>
+      <NodeV v-for="param of node.params" :node="param" :path="pathNew" class="node-spaced-right" />
+      <span class="node-sym node-spaced-right">-&gt;</span>
+      <NodeV :node="node.body" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'lambdaCase'">
+      <span class="node-sym">\case</span>
+      <div v-for="branch of node.branches" class="node-inline-block">
+        <NodeV :node="branch" :path="pathNew" />
+      </div>
+    </template>
+    <template v-else-if="node.ty === 'list'">
+      [<template v-for="elem, ix of node.elems" :key="ix">
+        <NodeV :node="elem" :path="pathNew" />
+        <span v-if="ix < node.elems.length - 1" class="node-spaced-right">,</span>
+      </template>]
+    </template>
+    <template v-else-if="node.ty === 'tuple'">
+      (<template v-for="elem, ix of node.elems" :key="ix">
+        <NodeV :node="elem" :path="pathNew" />
+        <span v-if="ix < node.elems.length - 1" class="node-spaced-right">,</span>
+      </template>)
+    </template>
+    <template v-else-if="node.ty === 'paren'">
+      (<NodeV :node="node.expr" :path="pathNew" />)
+    </template>
+    <template v-else-if="node.ty === 'ann'">
+      <NodeV :node="node.expr" :path="pathNew" />
       <span class="node-sym node-spaced">::</span>
-      <NodeV :node="node.ann" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'typeNode'">
-      <TypeScheme :typeScheme="node.typeScheme" />
-    </span>
-    <span v-else-if="node.type === 'bindingDef' || node.type === 'bindingDefRes'">
-      <NodeV :node="node.binding" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'equationDef' || node.type === 'equationDefRes'">
-      <NodeV :node="node.equation" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'decl'">
-      <template v-for="var_, i of node.vars">
-        <NodeV :node="var_" :selection="selection" :parent="node" />
-        <span v-if="i < node.vars.length - 1" class="node-spaced-right">,</span>
+      <NodeV :node="node.ann" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'type'">
+      <TypeV :type="node.type" />
+    </template>
+    <template v-else-if="node.ty === 'typeScheme'">
+      <TypeScheme :type-scheme="node.typeScheme" :is-implicit="node.isImplicit" />
+    </template>
+    <template v-else-if="node.ty === 'sigDecl'">
+      <template v-for="id, ix of node.ids">
+        <NodeV :node="id" :path="pathNew" />
+        <span v-if="ix < node.ids.length - 1" class="node-spaced-right">,</span>
       </template>
       <span class="node-sym node-spaced">::</span>
-      <NodeV :node="node.ann" :selection="selection" :parent="node" />
-    </span>
-    <span v-else-if="node.type === 'fixityDecl'">
-      <span class="node-kw node-spaced-right">infix{{ node.assoc === 'left' ? 'l' : node.assoc === 'right' ? 'r' : '' }}</span>
-      <span class="node-lit node-spaced-right">{{ node.prec }}</span>
-      <template v-for="var_, i of node.vars">
-        <NodeV :node="var_" :selection="selection" :parent="node" />
-        <span v-if="i < node.vars.length - 1" class="node-spaced-right">,</span>
+      <NodeV :node="node.sig" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'fixityDecl'">
+      <span class="node-kw node-spaced-right">infix{{ node.fixity.assoc === 'left' ? 'l' : node.fixity.assoc === 'right' ? 'r' : '' }}</span>
+      <span class="node-lit node-spaced-right">{{ node.fixity.prec }}</span>
+      <template v-for="id, ix of node.ids">
+        <NodeV :node="id" :path="pathNew" />
+        <span v-if="ix < node.ids.length - 1" class="node-spaced-right">,</span>
       </template>
-    </span>
-    <span v-else-if="node.type === 'dataDecl'">
+    </template>
+    <template v-else-if="node.ty === 'dataApplyCon'">
+      <NodeV :node="node.func" :path="pathNew" />
+      <NodeV v-for="param of node.params" :node="param" :path="pathNew" class="node-spaced-left" />
+    </template>
+    <template v-else-if="node.ty === 'dataInfixCon'">
+      <NodeV :node="node.lhs" :path="pathNew" />
+      <NodeV :node="node.op" :path="pathNew" class="node-spaced" />
+      <NodeV :node="node.rhs" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'dataDef'">
       <span class="node-kw node-spaced-right">data</span>
-      <span class="node-con">{{ node.id }}</span>
-      <TypeV v-for="param of node.data.typeParams" :key="param.id" :type="param" class="node-spaced-left" />
+      <NodeV :node="node.id" :path="pathNew" />
+      <NodeV v-for="param of node.params" :node="param" class="node-spaced-left" />
       <span class="node-sym node-spaced">=</span>
-      <template v-for="con, i of node.data.cons" :key="i">
-        <span v-if="i > 0" class="node-sym node-spaced">|</span>
-        <span class="node-con">{{ con.id }}</span>
-        <TypeV v-for="param of con.params" :type="param" :has-parent="true" class="node-spaced-left" />
+      <template v-for="con, ix of node.cons" :key="ix">
+        <span v-if="ix > 0" class="node-sym node-spaced">|</span>
+        <NodeV :node="con" :path="pathNew" />
       </template>
-    </span>
-    <span v-else-if="node.type === 'import'">
+    </template>
+    <template v-else-if="node.ty === 'recordDefField'">
+      <NodeV :node="node.key" :path="pathNew" />
+      <span class="node-sym node-spaced">::</span>
+      <NodeV :node="node.type" :path="pathNew" />
+    </template>
+    <template v-else-if="node.ty === 'recordDef'">
+      <span class="node-kw node-spaced-right">record</span>
+      <NodeV :node="node.id" :path="pathNew" />
+      <NodeV v-for="param of node.params" :node="param" class="node-spaced-left" />
+      <span class="node-sym node-spaced">=</span>
+      <span class="node-spaced-right">{</span>
+      <template v-for="field, ix of node.fields" :key="ix">
+        <NodeV :node="field" :path="pathNew" />
+        <span v-if="ix < node.fields.length - 1" class="node-sym node-spaced-right">,</span>
+      </template>
+      <span class="node-spaced-left">}</span>
+    </template>
+    <template v-else-if="node.ty === 'importItem'">
+      <NodeV :node="node.id" :path="pathNew" />
+      <template v-if="node.qid">
+        <span class="node-kw node-spaced">as</span>
+        <NodeV :node="node.qid" :path="pathNew" />
+      </template>
+    </template>
+    <template v-else-if="node.ty === 'import'">
       <span class="node-kw">import</span>
-      <span class="node-var">{{ node.modId }}</span>
-      <template v-if="node.ids">
-        (<template v-for="id, i of node.ids" :key="i">
-          <NodeV :node="{ type: 'var', id }" :parent="node" />
-          <span v-if="i < node.ids.length - 1" class="node-spaced-right">,</span>
-        </template>)
+      <NodeV :node="node.modId" :path="pathNew" class="node-spaced-right" />
+      <span v-if="node.isOpen" class="node-kw">open</span>
+      <template v-if="node.items">
+        <span class="node-spaced-right">{</span>
+        <template v-for="item, ix of node.items" :key="ix">
+          <NodeV :node="item" :path="pathNew" />
+          <span v-if="ix < node.items.length - 1" class="node-spaced-right">,</span>
+        </template>
+        <span class="node-spaced-left">}</span>
       </template>
-    </span>
-    <span v-else-if="node.type === 'bindingHost' || node.type === 'bindingHostRes' || node.type === 'bindingHostDes'" class="node-host">
-      <div v-for="decl of node.type === 'bindingHost' ? node.decls : values(node.declDict)">
-        <NodeV :node="decl" :selection="selection" :parent="node" />
+      <span :class="node.items ? null : 'node-spaced-left'">
+        <template v-if="node.qid">
+          <span class="node-kw node-spaced">as</span>
+          <NodeV :node="node.qid" :path="pathNew" />
+        </template>
+      </span>
+    </template>
+    <template v-else-if="node.ty === 'bindingHost'">
+      <div v-for="sigDecl of node.sigDecls">
+        <NodeV :node="sigDecl" :path="pathNew" />
       </div>
 
-      <div v-for="fixityDecl of node.type === 'bindingHost' ? node.fixityDecls : values(node.fixityDict)">
-        <NodeV :node="fixityDecl" :selection="selection" :parent="node" />
+      <div v-for="fixityDecl of node.fixityDecls">
+        <NodeV :node="fixityDecl" :path="pathNew" />
       </div>
 
-      <div v-for="bindingDef of node.type !== 'bindingHostDes' ? node.bindingDefs : node.bindings">
-        <NodeV :node="bindingDef" :selection="selection" :parent="node" />
+      <div v-for="binding of node.bindings">
+        <NodeV :node="binding" :path="pathNew" />
       </div>
-
-      <div v-for="equationDef of
-        node.type === 'bindingHost' ? node.equationDefs :
-        node.type === 'bindingHostRes' ? values(node.equationDefGroupDict).flatMap(group => group.equationDefs) :
-        []"
-      >
-        <NodeV :node="equationDef" :selection="selection" :parent="node" />
-      </div>
-    </span>
-    <span v-else-if="node.type === 'classDef' || node.type === 'classDefRes' || node.type === 'classDefDes'">
+    </template>
+    <template v-else-if="node.ty === 'classDef'">
       <span class="node-kw">class</span>
-      <span class="node-con node-spaced-right">{{ node.id }}</span>
-      <TypeV :type="node.param" class="node-spaced-right" />
-      <span class="node-kw node-spaced-right">where</span>
-      <NodeV :node="node.bindingHost" :selection="selection" :parent="node" class="node-block" />
-    </span>
-    <span v-else-if="node.type === 'instanceDef' || node.type === 'instanceDefRes' || node.type === 'instanceDefDes'">
+      <NodeV class="node-spaced-right" :node="node.id" :path="pathNew" />
+      <NodeV :node="node.param" class="node-spaced-right" />
+      <template v-if="! isBrief">
+        <span class="node-kw node-spaced-right">where</span>
+        <NodeV :node="node.bindingHost" :path="pathNew" class="node-block" />
+      </template>
+    </template>
+    <template v-else-if="node.ty === 'instanceDef'">
       <span class="node-kw">instance</span>
-      <span class="node-con node-spaced-right">{{ node.classId }}</span>
-      <TypeV :type="node.arg" class="node-spaced-right" />
-      <span class="node-kw node-spaced-right">where</span>
-      <NodeV :node="node.bindingHost" :selection="selection" :parent="node" class="node-block" />
-    </span>
-    <span v-else-if="node.type === 'mod' || node.type === 'modRes' || node.type === 'modDes'" class="node-host">
+      <NodeV class="node-spaced-right" :node="node.classId" :path="pathNew" />
+      <NodeV :node="node.arg" />
+      <template v-if="! isBrief">
+        <span class="node-kw node-spaced">where</span>
+        <NodeV :node="node.bindingHost" :path="pathNew" class="node-block" />
+      </template>
+    </template>
+    <template v-else-if="node.ty === 'mod'">
       <div v-for="import_ of node.imports">
-        <NodeV :node="import_" :selection="selection" :parent="node" />
+        <NodeV :node="import_" :path="pathNew" />
       </div>
 
-      <div v-for="dataDecl of node.dataDecls">
-        <NodeV :node="dataDecl" :selection="selection" :parent="node" />
+      <div v-for="dataDef of node.dataDefs">
+        <NodeV :node="dataDef" :path="pathNew" />
       </div>
 
-      <div v-for="classDef of node.type === 'mod' ? node.classDefs : values(node.classDefDict)">
-        <NodeV :node="classDef" :selection="selection" :parent="node" />
+      <div v-for="recordDef of node.recordDefs">
+        <NodeV :node="recordDef" :path="pathNew" />
+      </div>
+
+      <div v-for="classDef of node.classDefs">
+        <NodeV :node="classDef" :path="pathNew" />
       </div>
 
       <div v-for="instanceDef of node.instanceDefs">
-        <NodeV :node="instanceDef" :selection="selection" :parent="node" />
+        <NodeV :node="instanceDef" :path="pathNew" />
       </div>
 
-      <NodeV :node="node.bindingHost" :selection="selection" :parent="node" />
-    </span>
-    <span v-if="withParen">)</span>
+      <NodeV :node="node.bindingHost" :path="pathNew" />
+    </template>
   </span>
 </template>
 
 <style>
-.node.selected {
+.node.hovering {
   background-color: dimgrey;
 }
 
-.node.fixed {
+.node.selected {
   outline: 1px solid lightblue;
 }
 
@@ -279,14 +444,21 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
   margin-top: 1ch;
 }
 
-.node-block {
-  margin-left: 2ch;
-  display: flex;
-  align-items: start;
+.node-host:not(.node-root) {
+  margin-bottom: 1ch;
 }
 
-.node-block.end {
-  align-items: end;
+.node-indent {
+  margin-left: 2ch;
+}
+
+.node-inline-block {
+  margin-left: 2ch;
+}
+
+.node-block {
+  display: block;
+  margin-left: 2ch;
 }
 
 .node-kw {
@@ -310,6 +482,14 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
   color: lightsalmon;
 }
 
+.node-paren::before {
+  content: '(';
+}
+
+.node-paren::after {
+  content: ')';
+}
+
 .node-spaced {
   margin-left: 1ch;
   margin-right: 1ch;
@@ -321,5 +501,9 @@ const withParen = computed(() =>  Node.needsParen(props.node, props.parent))
 
 .node-spaced-right {
   margin-right: 1ch;
+}
+
+.node-special {
+  color: #ddc3f7;
 }
 </style>

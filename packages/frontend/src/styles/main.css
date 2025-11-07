@@ -1,0 +1,87 @@
+:root {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: #ffffffde;
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+* {
+  font-size: 1rem;
+}
+
+a, a:hover, a:active, a:visited {
+  color: lightblue;
+}
+
+.err {
+  color: lightcoral;
+}
+
+.obscure {
+  color: grey;
+}
+
+.link {
+  color: lightblue;
+}
+
+textarea {
+  box-sizing: border-box;
+  padding: .5em;
+  resize: vertical;
+  outline: none;
+  border: 1px solid grey;
+  background-color: black;
+  transition: border-color .3s;
+}
+textarea:hover, textarea:focus {
+  border-color: lightblue;
+}
+
+pre {
+  margin: 0;
+  overflow-x: auto;
+}
+
+button {
+  border: none;
+  outline: none;
+  font: inherit;
+  color: ivory;
+  padding: 0;
+  background: unset;
+  transition: color .3s;
+}
+
+button::before {
+  content: '[';
+}
+button::after {
+  content: ']';
+}
+button:hover, button:focus {
+  color: lightblue;
+  text-decoration: underline;
+  cursor: pointer;
+}
+button:focus {
+  text-decoration-style: dashed;
+}
+
+button + button {
+  margin-left: 1ch;
+}

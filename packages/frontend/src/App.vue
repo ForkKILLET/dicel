@@ -1,47 +1,45 @@
 <script setup lang="ts">
-import {
-  Runner, RunnerCache,
-  type Node, type DRange, type DId,
-} from '@dicel/core'
-import { Selection } from './utils/selectable'
+import { type ModStateMap, type Node, Pipeline } from '@dicel/core'
+import { NodeSelection } from './utils/nodeSelection'
 
-import { computed, onMounted, reactive, ref, useTemplateRef, watch } from 'vue'
-import CheckErr from './components/passes/CheckErr.vue'
-import ParseOk from './components/passes/ParseOk.vue'
-import CheckOk from './components/passes/CheckOk.vue'
-import DesugarOk from './components/passes/DesugarOk.vue'
-import ExecuteResult from './components/passes/ExecuteResult.vue'
-import ParseErr from './components/passes/ParseErr.vue'
-import DesugarErr from './components/passes/DesugarErr.vue'
-import ResolveOk from './components/passes/ResolveOk.vue'
-import ResolveErr from './components/passes/ResolveErr.vue'
+import { onMounted, provide, reactive, ref, shallowReactive, useTemplateRef, watch } from 'vue'
+import ModPipeline from '@comp/ModPipeline.vue'
+import SwitchButton from '@comp/SwitchButton.vue'
+import { kModStates, kNodeSelection, kTypeSchemeImplicit, kTypeShowPrettyIds } from '@util/inject'
+import { useElementSize } from '@vueuse/core'
+import { refStorage } from '@util/stoage'
+import SplitterBar from '@comp/SplitterBar.vue'
 
-declare global {
-  interface Window {
-    $node: Node<DRange & DId> | null
-  }
-}
-window.$node = null
+const DEFAULT_SOURCE = 'main = @6'
 
-const source = ref<string>(localStorage['source'] ?? '')
-const runnerCache = reactive(RunnerCache.empty())
-const result = computed(() => runnerCache.result)
-const runner = new Runner(runnerCache)
-const selection = reactive<Selection>(Selection())
+const source = ref<string>(localStorage['source'] ?? DEFAULT_SOURCE)
+const selection = reactive<NodeSelection>(NodeSelection())
+const modStates: ModStateMap = shallowReactive({})
+const pipeline = new Pipeline(modStates)
+
+const selectedModId = ref<string>('Main')
 
 onMounted(() => {
+  pipeline.loadStd()
+
   watch(source, () => {
     localStorage['source'] = source.value
-    runner.run(source.value)
+
+    selection.hoveringLoc = selection.selectedLoc = null
+
+    pipeline.load('Main', source.value)
   }, { immediate: true })
 
   watch(selection, () => {
     if (! inputEl.value) return
-    const node = selection.node ?? selection.fixedNode
-    if (node) window.$node = node
+
+    const loc = selection.hoveringLoc ?? selection.selectedLoc
+    if (! loc) return
+    const { node } = loc
+    window.$node = node
 
     if (! followSelection.value) return
-    if (node) {
+    if (node.range) {
       const { start, end } = node.range
       inputEl.value.focus()
       inputEl.value.setSelectionRange(start, end)
@@ -54,52 +52,73 @@ onMounted(() => {
 
 const followSelection = ref(false)
 const inputEl = useTemplateRef('inputEl')
+const leftEl = useTemplateRef('left')
+const rightEl = useTemplateRef('right')
 
-const leftEl = useTemplateRef('leftEl')
-const rightEl = useTemplateRef('rightEl')
+const inputHeight = refStorage('inputHeight', 200)
+const { height: inputActualHeight } = useElementSize(inputEl)
+
+onMounted(() => {
+  inputEl.value!.style.height = `${inputHeight.value}px`
+})
+watch(inputActualHeight, height => {
+  inputHeight.value = height
+})
+
+declare global {
+  interface Window {
+    $node: Node | null
+    $pipeline: Pipeline
+  }
+}
+
+window.$node = null
+window.$pipeline = pipeline
+
+provide(kModStates, modStates)
+provide(kNodeSelection, selection)
+provide(kTypeShowPrettyIds, ref(true))
+provide(kTypeSchemeImplicit, ref(false))
 </script>
 
 <template>
-  <div class="root">
+  <div class="app">
     <main>
-      <div class="col" ref="leftEl">
-        <div class="section">
-          <button @click="followSelection = ! followSelection">Selection: {{ followSelection ? 'on' : 'off' }}</button>
-          <textarea class="code" v-model="source" spellcheck="false" ref="inputEl"></textarea>
-        </div>
-      </div>
-      <div class="col" ref="rightEl"></div>
-    </main>
+      <div class="col left" ref="left">
+        <section>
+          <div class="mod-tabs">
+            <span
+              v-for="modState, id of modStates"
+              class="mod-tab"
+              :class="[
+                modState[pipeline.passSeq.at(-1)!].status === 'ok' ? 'ok' : 'err',
+                id === selectedModId ? 'selected' : null,
+              ]"
+              @click="selectedModId = id"
+            >
+              {{ id }}
+            </span>
+          </div>
+        </section>
 
-    <template v-if="result">
-      <Teleport :to="leftEl">
-        <template v-if="result.parse">
-          <ParseOk :result="result" :selection="selection" />
-          <Teleport :to="leftEl">
-            <template v-if="result.resolve">
-              <ResolveOk :result="result" />
-              <Teleport :to="leftEl">
-                <template v-if="result.desugar">
-                  <DesugarOk :result="result" />
-                  <Teleport :to="leftEl">
-                    <template v-if="result.check" >
-                      <CheckOk :result="result" />
-                      <Teleport :to="rightEl">
-                        <ExecuteResult :result="result" :runner="runner" :runner-cache="runnerCache" />
-                      </Teleport>
-                    </template>
-                    <CheckErr v-else :err="result.err" />
-                  </Teleport>
-                </template>
-                <DesugarErr v-else :err="result.err" />
-              </Teleport>
-            </template>
-            <ResolveErr v-else :err="result.err" />
-          </Teleport>
-        </template>
-        <ParseErr v-else :err="result.err" />
-      </Teleport>
-    </template>
+        <section>
+          <SwitchButton v-model="followSelection">range</SwitchButton>
+
+          <textarea
+            v-model="source"
+            ref="inputEl"
+            spellcheck="false"
+          ></textarea>
+        </section>
+      </div>
+      <SplitterBar :el="leftEl" />
+      <div class="col right" ref="right">
+      </div>
+
+      <KeepAlive :key="selectedModId">
+        <ModPipeline :mod-id="selectedModId" :left-el="leftEl" :right-el="rightEl" />
+      </KeepAlive>
+    </main>
 
     <footer>
       <p>
@@ -111,14 +130,13 @@ const rightEl = useTemplateRef('rightEl')
   </div>
 </template>
 
-<style>
-.root {
+<style scoped>
+.app {
   display: flex;
   flex-direction: column;
   height: 100vh;
   place-items: center;
   align-items: stretch;
-  font-family: monospace;
 }
 
 main {
@@ -144,158 +162,73 @@ footer .logo {
 }
 
 .col {
-  flex: 1;
-  overflow-y: auto;
+  text-align: right;
   scrollbar-width: none;
-  display: flex;
-  flex-direction: column;
+  overflow-y: auto;
+  min-width: 20em;
 }
 
-.super-section {
-  display: flex;
-  flex-direction: column;
+.col.left {
+  width: 50%;
+}
+.col.right {
+  flex: 1;
 }
 
-.section {
-  box-sizing: border-box;
-  padding: 1em;
-  margin: .5em 0;
-  background-color: black;
+@media (max-width: 800px) or (orientation: portrait) {
+  .col.empty {
+    display: none;
+  }
 }
 
-.section-head {
+:deep(section .header) {
   margin-bottom: .5em;
 }
+:deep(section :not(.badge) + .header) {
+  margin-top: 1em;
+}
 
-.section {
+:deep(section) {
   position: relative;
+  box-sizing: border-box;
+  padding: 1em;
   border: 1px solid grey;
+  background-color: black;
+  text-align: left;
 }
-
-.badge {
-  float: right;
-  padding: .2em .5em;
-  margin: calc(-1em - 1px) calc(-1em - 1px) 0 0;
-}
-
-.section.ok {
-  border: 1px solid lightgreen;
-}
-.section.ok .badge {
-  background-color: lightgreen;
-  color: black;
-}
-
-.section.err {
-  border: 1px solid lightcoral;
-}
-.section.err .badge {
-  background-color: lightcoral;
-  color: black;
-}
-
-.err {
-  color: lightcoral;
+:deep(section:not(:first-child)) {
+  margin-top: 1em;
 }
 
 textarea {
-  box-sizing: border-box;
   margin-top: .5em;
-  padding: .5em;
   width: 100%;
-  min-height: 20vh;
-  resize: vertical;
-  outline: none;
-  border: 1px solid grey;
-  background-color: black;
-}
-textarea:hover, textarea:focus {
-  border-color: lightblue;
 }
 
-.error-stack {
-  margin-left: 2ch;
+.mod-tabs {
+  border-bottom: 1px solid grey;
 }
 
-pre {
-  overflow-x: auto;
-}
-
-button {
-  border: none;
-  outline: none;
-  font: inherit;
-  color: ivory;
-  padding: 0;
-  background: unset;
-}
-
-button::before {
-  content: '[';
-}
-button::after {
-  content: ']';
-}
-button:hover, button:focus {
-  text-decoration: underline;
+.mod-tab {
+  margin-right: .5em;
+  padding: .1em .5em 0 .5em;
+  border-style: solid;
+  border-width: 1px 1px 0 1px;
   cursor: pointer;
 }
-button:focus {
-  text-decoration-style: dashed;
+.mod-tab.ok {
+  border-color: lightgreen;
 }
-
-button + button {
-  margin-left: 1ch;
+.mod-tab.err {
+  border-color: lightcoral;
 }
-
-pre {
-  margin: 0;
+.mod-tab.selected {
+  color: black;
 }
-
-.dis-measure-container {
-  height: 0;
+.mod-tab.selected.ok {
+  background-color: lightgreen;
 }
-
-.dis-measure {
-  visibility: hidden;
-}
-
-.dis-total {
-  color: lightgreen;
-}
-
-.dis-scroll {
-  padding: 1em 0;
-  max-width: 45vw;
-  overflow-x: auto;
-  font-size: .9em;
-}
-
-.dis-bar {
-  transition: transform .2s;
-}
-
-.dis-bar-bar {
-  fill: lightblue;
-  transition: height .2s, y .2s;
-}
-
-.horizontal .dis-bar-count, .horizontal .dis-bar-val {
-  text-anchor: middle;
-}
-.vertical .dis-bar-count, .vertical .dis-bar-val {
-  dominant-baseline: central;
-}
-
-.dis-bar-count {
-  fill: lightgreen;
-}
-
-.dis-bar-val {
-  fill: ivory;
-}
-
-.dis-bar-err .dis-bar-bar, .dis-bar-err .dis-bar-val {
-  fill: lightcoral;
+.mod-tab.selected.err {
+  background-color: lightcoral;
 }
 </style>

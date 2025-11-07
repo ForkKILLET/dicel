@@ -1,28 +1,34 @@
-import { DefaultMap, Map, Set } from './containers'
+import { DefaultMap, Map, Set } from '@/utils/data'
 
 export type Graph<K> = Map<K, Set<K>>
+
+export type GraphD<K> = DefaultMap<K, Set<K>>
 
 export namespace Graph {
   export type SCC<K> = { color: number, nodes: Set<K> }
 
+  export const empty = <K>(): Graph<K> => Map.empty()
+
+  export const emptyD = <K>(): GraphD<K> => DefaultMap.empty<K, Set<K>>(Set.empty)
+
   export const solveSCCs = <K>(graph: Graph<K>) => {
-    const graphRev = DefaultMap.empty<K, Set<K>>(Set.empty)
+    const graphRev = emptyD<K>()
     for (const [from, tos] of graph) {
       for (const to of tos) {
         graphRev.get(to).add(from)
       }
     }
 
-    const visited = Set.empty<K>()
+    const transformed = Set.empty<K>()
     const colorMap = Map.empty<K, number>()
     const stack: K[] = []
     let color = 0
     const comps = Array.of<SCC<K>>()
 
     const dfs = (node: K) => {
-      visited.add(node)
+      transformed.add(node)
       for (const to of graph.get(node)!) {
-        if (! visited.has(to)) dfs(to)
+        if (! transformed.has(to)) dfs(to)
       }
       stack.push(node)
     }
@@ -36,7 +42,7 @@ export namespace Graph {
     }
 
     for (const node of graph.keys()) {
-      if (! visited.has(node)) dfs(node)
+      if (! transformed.has(node)) dfs(node)
     }
 
     while (stack.length > 0) {

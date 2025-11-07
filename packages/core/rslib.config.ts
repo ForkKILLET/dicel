@@ -12,7 +12,8 @@ export default defineConfig({
       syntax: ['node 18'],
     },
   ],
+
   source: {
     assetsInclude: [/\.dicel$/]
-  }
+  },
 })

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Type, type TypeDesc } from '@dicel/core'
-import TypeDescV from './TypeDesc.vue'
+import { Type } from '@dicel/core'
+
 import { computed } from 'vue'
+import TypeDescV from '@comp/TypeDescV.vue'
 
 const props = defineProps<{
   type: Type
@@ -9,8 +10,8 @@ const props = defineProps<{
 }>()
 
 const typeDesc = computed(() => Type.describe(props.type))
-const parentDesc = computed<TypeDesc | null>(() => props.hasParent
-  ? { sub: 'dummy', inner: typeDesc.value }
+const parentDesc = computed<Type.Desc | null>(() => props.hasParent
+  ? { ty: 'dummy', inner: typeDesc.value }
   : null
 )
 </script>

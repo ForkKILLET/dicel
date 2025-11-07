@@ -1,0 +1,25 @@
+class Eq a where
+  (==) :: a -> a -> Bool
+
+instance Eq Int where
+  (==) = eqInt
+
+-- elem :: Eq a => a -> [a] -> Bool
+elem x = any (x ==)
+
+main = elem 0 [1, 2, 3]
+
+-- >
+
+record !Dict.Eq a = { (==) :: a -> a -> Bool }
+
+(==) :: !Dict.Eq a -> a -> a -> Bool
+(==) !Dict.Eq { (==) } = (==)
+
+-- !dict.Eq.Int :: !Dict.Eq Int
+!dict.Eq.Int = !Dict.Eq { (==) = eqInt }
+
+-- elem :: !Dict.Eq a -> a -> [a] -> Bool
+elem = \!dict.Eq -> \x -> any (x ((==) !dict.Eq))
+
+main = elem !dict.Eq.Int 0 [1, 2, 3]
